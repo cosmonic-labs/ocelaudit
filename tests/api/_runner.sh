@@ -53,6 +53,20 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
+# Scrape the seed-credentials line so tests can log in. The line is
+# emitted once per fresh data dir; the runner deletes that dir each run,
+# so the line is always present here.
+seed_line=$(grep -m1 "ocelaudit: seeded users.json" "$LOG_FILE" || true)
+if [ -n "$seed_line" ]; then
+  ADMIN_PASSWORD=$(printf "%s" "$seed_line" | sed -E 's/.*admin password: ([^ ]+) .*/\1/')
+  COMPLIANCE_PASSWORD=$(printf "%s" "$seed_line" | sed -E 's/.*compliance password: ([^ ]+).*/\1/')
+  export ADMIN_PASSWORD COMPLIANCE_PASSWORD
+  echo ">> scraped seed credentials from log"
+else
+  echo "!! could not find seed-credentials line in wash dev log"
+  exit 1
+fi
+
 echo ">> running tests/api/m*.sh against $BASE_URL"
 fail=0
 for script in tests/api/m*.sh; do

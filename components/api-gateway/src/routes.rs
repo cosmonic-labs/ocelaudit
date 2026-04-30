@@ -1,91 +1,170 @@
-//! Request routing for the gateway. Pure-data dispatch:
-//! `(method, path)` → `RouteResponse`.
+//! Request routing for the gateway.
 
 use ocelaudit_csl_ingest::{parse_external_json, source_meta};
-use ocelaudit_storage_jsonfs::{JsonFsStorage, SearchEvent};
+use ocelaudit_search::{EntityType, SearchParams, Tlp};
+use ocelaudit_storage_jsonfs::{Role, SearchEvent};
+use serde::Deserialize;
 use serde_json::json;
+use uuid::Uuid;
 
+use crate::auth::{clear_cookie, extract_session_cookie, set_cookie, Session};
 use crate::state::AppState;
 use crate::wasi::clocks;
-use crate::wasi::http::types::{IncomingRequest, Method};
+use crate::wasi::http::types::Method;
 use crate::RouteResponse;
 
-/// Source path for `/api/v1/csl/refresh`. Wash dev mounts a host
-/// directory at `/data`; drop your CSL JSON here and POST refresh. Real
-/// HTTP fetch lands later — see README "WASI P3 caveats" for the gap.
 const CSL_SEED_PATH: &str = "/data/csl/seed.json";
 
-pub(crate) fn dispatch(
-    method: &Method,
-    path: &str,
-    app: &Result<&'static AppState, String>,
-    _req: &IncomingRequest,
-) -> RouteResponse {
-    let app = match app {
+/// One bag of "everything we already know about the request" so route
+/// handlers can be plain functions instead of dragging IncomingRequest
+/// around.
+pub(crate) struct DispatchInput<'a> {
+    pub method: &'a Method,
+    pub path: &'a str,
+    pub query_string: Option<&'a str>,
+    pub cookie_header: Option<&'a str>,
+    pub body: Option<&'a [u8]>,
+    pub app: &'a Result<&'static AppState, String>,
+}
+
+pub(crate) fn dispatch(in_: DispatchInput<'_>) -> RouteResponse {
+    let app = match in_.app {
         Ok(a) => *a,
         Err(e) => {
-            return match (method, path) {
+            return match (in_.method, in_.path) {
                 (Method::Get, "/") => RouteResponse::plain(200, "ocelaudit booting"),
                 _ => RouteResponse::err(503, e.clone()),
             };
         }
     };
 
-    match (method, path) {
+    let session = current_session(app, in_.cookie_header);
+
+    match (in_.method, in_.path) {
+        // -- public --
         (Method::Get, "/") => RouteResponse::plain(200, "ocelaudit booting"),
         (Method::Get, "/healthz") => RouteResponse::json(200, json!({"ok": true})),
+        (Method::Post, "/api/v1/auth/login") => login(app, in_.body),
+        (Method::Post, "/api/v1/auth/logout") => logout(),
 
-        (Method::Get, "/api/v1/me") => me(app),
-        (Method::Get, "/api/v1/audit/_test") => audit_test_get(app),
-        (Method::Post, "/api/v1/audit/_test") => audit_test_post(app),
+        // -- always-public CSL surface (helps the unauth login page hint) --
+        (Method::Get, "/api/v1/csl/sources") => csl_sources(app),
+
+        // -- everything else needs auth --
+        _ => match session {
+            Some(s) => dispatch_authed(app, &s, in_),
+            None => RouteResponse::err(401, "authentication required"),
+        },
+    }
+}
+
+fn dispatch_authed(
+    app: &AppState,
+    session: &Session,
+    in_: DispatchInput<'_>,
+) -> RouteResponse {
+    match (in_.method, in_.path) {
+        (Method::Get, "/api/v1/me") => me(session),
 
         (Method::Get, "/api/v1/csl/metadata") => csl_metadata(app),
-        (Method::Get, "/api/v1/csl/sources") => csl_sources(app),
-        (Method::Post, "/api/v1/csl/refresh") => csl_refresh(app),
+        (Method::Post, "/api/v1/csl/refresh") => {
+            require_admin(session).unwrap_or_else(|| csl_refresh(app))
+        }
         (Method::Get, p) if p.starts_with("/api/v1/csl/entries/") => {
             let id = p.trim_start_matches("/api/v1/csl/entries/");
             csl_entry(app, id)
         }
 
-        _ => RouteResponse::json(404, json!({"error": "not found", "path": path})),
+        (Method::Post, "/api/v1/search") => search(app, session, in_.body),
+        (Method::Get, "/api/v1/search/autocomplete") => {
+            autocomplete(app, in_.query_string)
+        }
+
+        // M2 leftovers — kept for now, deleted in M5 polish. Must come
+        // BEFORE the /api/v1/audit/{id} prefix match below.
+        (Method::Get, "/api/v1/audit/_test") => audit_test_get(app),
+        (Method::Post, "/api/v1/audit/_test") => audit_test_post(app),
+
+        (Method::Get, "/api/v1/audit") => audit_list(app, in_.query_string),
+        (Method::Get, p) if p.starts_with("/api/v1/audit/") => {
+            audit_get(app, p.trim_start_matches("/api/v1/audit/"))
+        }
+
+        (Method::Get, "/api/v1/metrics") => metrics(app),
+
+        _ => RouteResponse::json(404, json!({"error": "not found", "path": in_.path})),
     }
+}
+
+// ---------- session middleware ----------
+
+fn current_session(app: &AppState, cookie_header: Option<&str>) -> Option<Session> {
+    let header = cookie_header?;
+    let raw = extract_session_cookie(header)?;
+    app.signer.verify(raw)
+}
+
+fn require_admin(session: &Session) -> Option<RouteResponse> {
+    if session.role == Role::Admin {
+        None
+    } else {
+        Some(RouteResponse::err(403, "admin role required"))
+    }
+}
+
+// ---------- /api/v1/auth ----------
+
+#[derive(Deserialize)]
+struct LoginBody {
+    username: String,
+    password: String,
+}
+
+fn login(app: &AppState, body: Option<&[u8]>) -> RouteResponse {
+    let body = match body {
+        Some(b) if !b.is_empty() => b,
+        _ => return RouteResponse::err(400, "missing JSON body"),
+    };
+    let creds: LoginBody = match serde_json::from_slice(body) {
+        Ok(c) => c,
+        Err(e) => return RouteResponse::err(400, format!("bad JSON: {}", e)),
+    };
+    let ok = match app.storage.users_verify(&creds.username, &creds.password) {
+        Ok(o) => o,
+        Err(e) => return RouteResponse::err(500, e.to_string()),
+    };
+    let user = match ok {
+        Some(u) => u,
+        None => return RouteResponse::err(401, "invalid credentials"),
+    };
+    let issued_at = clocks::wall_clock::now().seconds;
+    let session = Session {
+        username: user.username.clone(),
+        role: user.role.clone(),
+        issued_at,
+    };
+    let cookie_value = match app.signer.issue(&session) {
+        Ok(s) => s,
+        Err(e) => return RouteResponse::err(500, format!("issue: {}", e)),
+    };
+    RouteResponse::json(
+        200,
+        json!({"username": user.username, "role": user.role}),
+    )
+    .with_cookie(set_cookie(&cookie_value))
+}
+
+fn logout() -> RouteResponse {
+    RouteResponse::json(200, json!({"ok": true})).with_cookie(clear_cookie())
 }
 
 // ---------- /api/v1/me ----------
 
-fn me(app: &AppState) -> RouteResponse {
-    match app.storage.users_get("admin") {
-        Ok(Some(u)) => RouteResponse::json(200, json!({"username": u.username, "role": u.role})),
-        Ok(None) => RouteResponse::err(500, "users not seeded"),
-        Err(e) => RouteResponse::err(500, e.to_string()),
-    }
-}
-
-// ---------- /api/v1/audit/_test ----------
-
-fn audit_test_get(app: &AppState) -> RouteResponse {
-    match app.storage.audit_list_recent(10, 0) {
-        Ok(events) => RouteResponse::json(200, json!({"count": events.len(), "events": events})),
-        Err(e) => RouteResponse::err(500, e.to_string()),
-    }
-}
-
-fn audit_test_post(app: &AppState) -> RouteResponse {
-    let when = clocks::wall_clock::now().seconds;
-    let event_id = format!("debug-{}-{}", when, app.storage.root().display().to_string().len());
-    let event = SearchEvent {
-        audit_id: event_id.clone(),
-        who: "system".into(),
-        when,
-        query: "synthetic m2 debug write".into(),
-        tlp: "green".into(),
-        top_hit_ids: vec![],
-        decision: "auto-green".into(),
-    };
-    match app.storage.audit_log(&event) {
-        Ok(_) => RouteResponse::json(201, json!({"audit_id": event_id})),
-        Err(e) => RouteResponse::err(500, e.to_string()),
-    }
+fn me(session: &Session) -> RouteResponse {
+    RouteResponse::json(
+        200,
+        json!({"username": session.username, "role": session.role, "iat": session.issued_at}),
+    )
 }
 
 // ---------- /api/v1/csl/* ----------
@@ -113,11 +192,7 @@ fn csl_sources(app: &AppState) -> RouteResponse {
     let metas: Vec<_> = source_meta::ALL
         .iter()
         .map(|m| {
-            json!({
-                "code": m.code,
-                "long_name": m.long_name,
-                "agency_url": m.agency_url,
-            })
+            json!({"code": m.code, "long_name": m.long_name, "agency_url": m.agency_url})
         })
         .collect();
     let counts = match app.storage.csl_metadata() {
@@ -154,6 +229,7 @@ fn csl_refresh(app: &AppState) -> RouteResponse {
     {
         return RouteResponse::err(500, e.to_string());
     }
+    app.invalidate_engine();
     RouteResponse::json(
         200,
         json!({
@@ -188,6 +264,297 @@ fn csl_entry(app: &AppState, id: &str) -> RouteResponse {
     }
 }
 
-// suppress unused-import warning for storage type when we use direct calls
-#[allow(dead_code)]
-fn _types(_s: &JsonFsStorage) {}
+// ---------- /api/v1/search ----------
+
+#[derive(Deserialize, Default)]
+struct SearchBody {
+    q: String,
+    #[serde(default)]
+    sources: Option<Vec<String>>,
+    #[serde(default)]
+    entity_types: Option<Vec<String>>,
+    #[serde(default)]
+    fuzzy: Option<bool>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+fn search(
+    app: &AppState,
+    session: &Session,
+    body: Option<&[u8]>,
+) -> RouteResponse {
+    let body = match body {
+        Some(b) if !b.is_empty() => b,
+        _ => return RouteResponse::err(400, "missing JSON body"),
+    };
+    let req: SearchBody = match serde_json::from_slice(body) {
+        Ok(r) => r,
+        Err(e) => return RouteResponse::err(400, format!("bad JSON: {}", e)),
+    };
+    let etypes = req.entity_types.as_ref().map(|v| {
+        v.iter()
+            .filter_map(|s| match s.to_ascii_lowercase().as_str() {
+                "individual" => Some(EntityType::Individual),
+                "entity" => Some(EntityType::Entity),
+                "vessel" => Some(EntityType::Vessel),
+                "aircraft" => Some(EntityType::Aircraft),
+                "unknown" => Some(EntityType::Unknown),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    });
+    let params = SearchParams {
+        q: req.q.clone(),
+        sources: req.sources.clone(),
+        entity_types: etypes,
+        fuzzy: req.fuzzy.unwrap_or(true),
+        limit: req.limit.unwrap_or(20) as usize,
+    };
+
+    let engine = match app.ensure_engine() {
+        Ok(e) => e,
+        Err(e) => return RouteResponse::err(500, e),
+    };
+    let result = engine.search(&params);
+
+    // Generate a real audit-id (UUIDv7) and persist the event.
+    let audit_id = Uuid::now_v7().to_string();
+    let when = clocks::wall_clock::now().seconds;
+    let top_ids: Vec<String> = result.hits.iter().take(5).map(|h| h.entry_id.clone()).collect();
+    let tlp_str = match result.tlp {
+        Tlp::Green => "green",
+        Tlp::Yellow => "yellow",
+        Tlp::Red => "red",
+    };
+    // M2 contract: audit row carries the workflow decision the API
+    // commits to. M8 will introduce review/decide; for M4, GREEN
+    // auto-clears, YELLOW + RED enter pending state.
+    let decision = match result.tlp {
+        Tlp::Green => "auto-green",
+        Tlp::Yellow => "pending-review",
+        Tlp::Red => "pending-block",
+    };
+    let event = SearchEvent {
+        audit_id: audit_id.clone(),
+        who: session.username.clone(),
+        when,
+        query: params.q.clone(),
+        tlp: tlp_str.into(),
+        top_hit_ids: top_ids.clone(),
+        decision: decision.into(),
+    };
+    if let Err(e) = app.storage.audit_log(&event) {
+        return RouteResponse::err(500, format!("audit_log: {}", e));
+    }
+
+    RouteResponse::json(
+        200,
+        json!({
+            "audit_id": audit_id,
+            "tlp": tlp_str,
+            "decision": decision,
+            "hits": result.hits.iter().map(|h| json!({
+                "entry_id": h.entry_id,
+                "score": h.score,
+                "tlp": tlp_token(h.tlp),
+                "matched_fields": h.matched_fields,
+                "snippet": h.snippet,
+            })).collect::<Vec<_>>(),
+        }),
+    )
+}
+
+fn tlp_token(t: Tlp) -> &'static str {
+    match t {
+        Tlp::Green => "green",
+        Tlp::Yellow => "yellow",
+        Tlp::Red => "red",
+    }
+}
+
+fn autocomplete(app: &AppState, query: Option<&str>) -> RouteResponse {
+    let prefix = query
+        .and_then(|q| {
+            q.split('&')
+                .find_map(|kv| kv.strip_prefix("q="))
+                .map(|s| urldecode(s))
+        })
+        .unwrap_or_default();
+    if prefix.is_empty() {
+        return RouteResponse::json(200, json!([]));
+    }
+    let engine = match app.ensure_engine() {
+        Ok(e) => e,
+        Err(e) => return RouteResponse::err(500, e),
+    };
+    let suggestions = engine.autocomplete(&prefix, 8);
+    RouteResponse::json(200, json!(suggestions))
+}
+
+/// Tiny percent-decoder for query strings. Handles `%XX` and `+`. Does
+/// not implement full RFC 3986; the gateway only cares about ASCII
+/// search prefixes.
+fn urldecode(s: &str) -> String {
+    let mut out = Vec::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                let hi = (bytes[i + 1] as char).to_digit(16);
+                let lo = (bytes[i + 2] as char).to_digit(16);
+                match (hi, lo) {
+                    (Some(h), Some(l)) => {
+                        out.push((h * 16 + l) as u8);
+                        i += 3;
+                    }
+                    _ => {
+                        out.push(bytes[i]);
+                        i += 1;
+                    }
+                }
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+// ---------- /api/v1/audit ----------
+
+fn audit_list(app: &AppState, query: Option<&str>) -> RouteResponse {
+    let (limit, offset) = parse_paging(query);
+    match app.storage.audit_list_recent(limit, offset) {
+        Ok(events) => RouteResponse::json(
+            200,
+            json!({"limit": limit, "offset": offset, "events": events}),
+        ),
+        Err(e) => RouteResponse::err(500, e.to_string()),
+    }
+}
+
+fn audit_get(app: &AppState, id: &str) -> RouteResponse {
+    if id.is_empty() {
+        return RouteResponse::err(400, "missing id");
+    }
+    match app.storage.audit_get(id) {
+        Ok(Some(e)) => RouteResponse::json(
+            200,
+            json!({
+                "audit_id": e.audit_id,
+                "who": e.who,
+                "when": e.when,
+                "query": e.query,
+                "tlp": e.tlp,
+                "decision": e.decision,
+                "top_hit_ids": e.top_hit_ids,
+            }),
+        ),
+        Ok(None) => RouteResponse::err(404, format!("audit_id {} not found", id)),
+        Err(e) => RouteResponse::err(500, e.to_string()),
+    }
+}
+
+fn parse_paging(query: Option<&str>) -> (usize, usize) {
+    let mut limit = 50usize;
+    let mut offset = 0usize;
+    if let Some(q) = query {
+        for kv in q.split('&') {
+            if let Some(v) = kv.strip_prefix("limit=") {
+                if let Ok(n) = v.parse::<usize>() {
+                    limit = n.clamp(1, 500);
+                }
+            }
+            if let Some(v) = kv.strip_prefix("offset=") {
+                if let Ok(n) = v.parse::<usize>() {
+                    offset = n.clamp(0, 100_000);
+                }
+            }
+        }
+    }
+    (limit, offset)
+}
+
+// ---------- /api/v1/metrics ----------
+
+fn metrics(app: &AppState) -> RouteResponse {
+    let csl_count = app
+        .storage
+        .csl_metadata()
+        .ok()
+        .flatten()
+        .map(|m| m.count)
+        .unwrap_or(0);
+    let sources = app
+        .storage
+        .csl_metadata()
+        .ok()
+        .flatten()
+        .map(|m| m.sources)
+        .unwrap_or_default();
+    let recent = app.storage.audit_list_recent(1000, 0).unwrap_or_default();
+    let mut tlp_red = 0u32;
+    let mut tlp_yellow = 0u32;
+    let mut tlp_green = 0u32;
+    for e in &recent {
+        match e.tlp.as_str() {
+            "red" => tlp_red += 1,
+            "yellow" => tlp_yellow += 1,
+            "green" => tlp_green += 1,
+            _ => {}
+        }
+    }
+    let last_refresh = app
+        .storage
+        .csl_metadata()
+        .ok()
+        .flatten()
+        .map(|m| m.fetched_at)
+        .unwrap_or(0);
+    RouteResponse::json(
+        200,
+        json!({
+            "csl_count": csl_count,
+            "csl_sources": sources,
+            "queries_recent": recent.len(),
+            "tlp_histogram": {"red": tlp_red, "yellow": tlp_yellow, "green": tlp_green},
+            "last_csl_refresh": last_refresh,
+            "queue_depth": 0,
+        }),
+    )
+}
+
+// ---------- /api/v1/audit/_test (M2 leftover) ----------
+
+fn audit_test_get(app: &AppState) -> RouteResponse {
+    match app.storage.audit_list_recent(10, 0) {
+        Ok(events) => RouteResponse::json(200, json!({"count": events.len(), "events": events})),
+        Err(e) => RouteResponse::err(500, e.to_string()),
+    }
+}
+
+fn audit_test_post(app: &AppState) -> RouteResponse {
+    let when = clocks::wall_clock::now().seconds;
+    let event_id = format!("debug-{}-{}", when, app.storage.root().display().to_string().len());
+    let event = SearchEvent {
+        audit_id: event_id.clone(),
+        who: "system".into(),
+        when,
+        query: "synthetic m2 debug write".into(),
+        tlp: "green".into(),
+        top_hit_ids: vec![],
+        decision: "auto-green".into(),
+    };
+    match app.storage.audit_log(&event) {
+        Ok(_) => RouteResponse::json(201, json!({"audit_id": event_id})),
+        Err(e) => RouteResponse::err(500, e.to_string()),
+    }
+}

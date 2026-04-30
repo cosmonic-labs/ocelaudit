@@ -126,7 +126,7 @@ Trust-boundary diagram lands in M6 when the SPA appears.
 
 | Component   | Role                          | Wasm size           | Image ref                                          |
 |-------------|-------------------------------|---------------------|----------------------------------------------------|
-| api-gateway | HTTP entry, routes, auth, TLP | 301 KB (release, M3; storage + csl-ingest compiled in) | `ghcr.io/<owner>/ocelaudit-api-gateway:<tag>` |
+| api-gateway | HTTP entry, routes, auth, TLP | 572 KB (release, M4; storage + search + csl-ingest + auth all compiled in) | `ghcr.io/<owner>/ocelaudit-api-gateway:<tag>` |
 | search      | BM25 + JW search engine       | host-target only at M1; .wasm landed when wired in M3+ | `ghcr.io/<owner>/ocelaudit-search:<tag>` |
 | storage-jsonfs | JSON-on-disk persistence   | compiled into api-gateway in M2 (no separate .wasm yet); separate component lands when WIT plumbing splits | `ghcr.io/<owner>/ocelaudit-storage-jsonfs:<tag>` |
 | csl-ingest  | Parse ITA CSL JSON → CslEntry | compiled into api-gateway in M3; HTTP fetch deferred (see caveats) | `ghcr.io/<owner>/ocelaudit-csl-ingest:<tag>` |
@@ -186,6 +186,7 @@ What the attestation **does** prove: this `.wasm` came from the commit named in 
 - "PEP screening" is approximated from CSL signals — not a true PEP feed.
 - **CSL refresh (M3) reads from a file path under the wash dev volume mount, not a live trade.gov HTTP fetch.** Drop your `consolidated.json` at `/data/csl/seed.json` (host: `.cache/ocelaudit-data/csl/seed.json`) and POST `/api/v1/csl/refresh`. Real `wasi:http/outgoing-handler` fetch lands later. Reason: implementing it pulls in the `wstd` async-runtime dep, which we deferred to keep M3 focused on the parse/store path.
 - No in-process scheduled refresh. WASI P2 components are request/response — they don't run loops between calls. Use an external scheduler (cron, systemd timer, k8s CronJob) that hits `/api/v1/csl/refresh`.
+- **Each WASI P2 incoming-handler call is a fresh component instance.** That means in-process state (signing key, cached search index, anything in `OnceCell`) doesn't survive between requests; it has to be persisted to disk or rebuilt each call. We persist the session signing key to `/data/session.key`; the search index is rebuilt per query (acceptable on the 10k-record fixture; M5 will look at amortizing it).
 - No HTTPS termination. Plain HTTP only.
 
 **This is a demo, not a product.**
@@ -231,7 +232,7 @@ Common gotchas:
 |------------------------|----------------------------|--------------|-----------------|------------|----------------------------------------------|
 | `DEV_HOST_ADDR`        | `127.0.0.1:8000`           | `host:port`  | (Makefile only) | M0         | Where `wash dev` listens for tests.          |
 | `STORAGE_BACKEND`      | `jsonfs:/data` (M2)        | `jsonfs:<path>` / `sqlite:<file>` (M11) / `turso:<file>` (M11) | api-gateway | M2 | Selects storage backend. M2: jsonfs only; sqlite/turso fail-fast with a pointer to M11. |
-| `SESSION_SIGNING_KEY`  | _generated on first start_ | hex          | api-gateway     | M4         | Signs session cookies.                       |
+| `SESSION_SIGNING_KEY`  | reads or writes `/data/session.key` if unset | UTF-8 secret | api-gateway | M4 | Signs session cookies. WASI P2 components are re-instantiated per request, so the signing key has to live on disk to survive between requests; we generate it once and write it under the storage root. Set this env to a stable value to override. |
 | `TLP_RED_THRESHOLD`    | `0.95`                     | float        | search          | M1         | Hits ≥ this score are RED.                   |
 | `TLP_YELLOW_THRESHOLD` | `0.75`                     | float        | search          | M1         | Hits ≥ this and < red are YELLOW.            |
 | `CSL_SEED_PATH` (de-facto) | `/data/csl/seed.json` (hardcoded in M3) | path | api-gateway | M3 | Where `/api/v1/csl/refresh` reads from. Configurable via env in a later milestone alongside `CSL_REFRESH_URL` for the live HTTP fetch path. |
@@ -298,7 +299,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 - M1 ✅ — Hand-rolled search engine (tantivy ruled out on wasi-toolchain grounds); 10k-record fixture suite with 100% top-1 / top-10 / TLP and p95 0.60 ms; decision frozen at `docs/m1-search-engine-decision.md`.
 - M2 ✅ — `storage-jsonfs` over `wasi:filesystem`: csl-records, audit, users (Argon2id-seeded), workflow. 17 unit tests + 8 API assertions; api-gateway exposes `/healthz`, `/api/v1/me`, `/api/v1/audit/_test`.
 - M3 ✅ — `csl-ingest` parser + 9-source-list fixture; `/api/v1/csl/{metadata,refresh,sources,entries/{id}}`. Refresh reads `/data/csl/seed.json` from the volume mount (real HTTP fetch is in caveats below).
-- M4 — API gateway routes (no UI yet).
+- M4 ✅ — Cookie-session auth (HMAC-SHA256, key persisted to `/data/session.key`), `/api/v1/{auth/{login,logout},me,search,search/autocomplete,audit,audit/{id},metrics}`. UUIDv7 audit IDs. 6 unit tests + 53 API assertions across the M0+M2+M3+M4 suite.
 - M5 — Hit workflow polish + screening conveniences.
 - M6 — Static-assets component + SPA shell.
 - M7 — Search & dashboard pages.

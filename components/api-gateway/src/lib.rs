@@ -10,6 +10,7 @@ use wasi::http::types::{
     Fields, IncomingRequest, OutgoingBody, OutgoingResponse, ResponseOutparam,
 };
 
+mod auth;
 mod routes;
 mod state;
 
@@ -21,9 +22,6 @@ thread_local! {
     static APP: OnceCell<AppState> = const { OnceCell::new() };
 }
 
-/// Lazy-init the app state on first request. Returns `Err(reason)` if
-/// startup config is invalid (e.g. STORAGE_BACKEND missing/bad) — the
-/// gateway responds 503 with the reason rather than crashing the host.
 fn app() -> Result<&'static AppState, String> {
     APP.with(|cell| -> Result<&'static AppState, String> {
         if cell.get().is_none() {
@@ -43,17 +41,64 @@ impl Guest for Component {
         let method = request.method();
         let raw_path = request.path_with_query().unwrap_or_else(|| "/".into());
         let path = raw_path.split('?').next().unwrap_or("/").to_string();
-        let app_result = app();
+        let query_string = raw_path.split_once('?').map(|(_, q)| q.to_string());
+        let cookie_header = read_cookie_header(&request);
+        let body = read_body(request);
 
-        let resp = routes::dispatch(&method, &path, &app_result, &request);
-        write_response(response_out, resp.status, resp.content_type, resp.body.as_bytes());
+        let app_result = app();
+        let resp = routes::dispatch(routes::DispatchInput {
+            method: &method,
+            path: &path,
+            query_string: query_string.as_deref(),
+            cookie_header: cookie_header.as_deref(),
+            body: body.as_deref(),
+            app: &app_result,
+        });
+
+        write_response(response_out, resp);
     }
 }
 
+fn read_cookie_header(req: &IncomingRequest) -> Option<String> {
+    let headers = req.headers();
+    // wasi:http header names are case-sensitive in the API even though
+    // HTTP itself is case-insensitive. Probe both common casings.
+    for name in &["cookie", "Cookie"] {
+        let entries = headers.get(&name.to_string());
+        if let Some(raw) = entries.into_iter().next() {
+            return String::from_utf8(raw).ok();
+        }
+    }
+    None
+}
+
+fn read_body(req: IncomingRequest) -> Option<Vec<u8>> {
+    let body = req.consume().ok()?;
+    let stream = body.stream().ok()?;
+    let mut out = Vec::new();
+    loop {
+        match stream.blocking_read(8192) {
+            Ok(chunk) => {
+                if chunk.is_empty() {
+                    // No data available right now; treat as EOF for
+                    // request bodies (we already finished reading).
+                    break;
+                }
+                out.extend_from_slice(&chunk);
+            }
+            Err(_) => break,
+        }
+    }
+    drop(stream);
+    Some(out)
+}
+
+#[derive(Debug, Default)]
 pub(crate) struct RouteResponse {
     pub status: u16,
     pub content_type: &'static str,
     pub body: String,
+    pub set_cookie: Option<String>,
 }
 
 impl RouteResponse {
@@ -62,6 +107,7 @@ impl RouteResponse {
             status,
             content_type: "application/json",
             body: value.to_string(),
+            set_cookie: None,
         }
     }
     pub fn plain(status: u16, body: impl Into<String>) -> Self {
@@ -69,22 +115,33 @@ impl RouteResponse {
             status,
             content_type: "text/plain",
             body: body.into(),
+            set_cookie: None,
         }
     }
     pub fn err(status: u16, message: impl Into<String>) -> Self {
         Self::json(status, serde_json::json!({"error": message.into()}))
     }
+    pub fn with_cookie(mut self, set_cookie: String) -> Self {
+        self.set_cookie = Some(set_cookie);
+        self
+    }
 }
 
-fn write_response(out: ResponseOutparam, status: u16, content_type: &str, body: &[u8]) {
+fn write_response(out: ResponseOutparam, r: RouteResponse) {
     let headers = Fields::new();
-    let _ = headers.set(&"content-type".to_string(), &[content_type.as_bytes().to_vec()]);
+    let _ = headers.set(
+        &"content-type".to_string(),
+        &[r.content_type.as_bytes().to_vec()],
+    );
+    if let Some(cookie) = &r.set_cookie {
+        let _ = headers.append(&"set-cookie".to_string(), &cookie.as_bytes().to_vec());
+    }
     let resp = OutgoingResponse::new(headers);
-    let _ = resp.set_status_code(status);
+    let _ = resp.set_status_code(r.status);
     let outgoing_body = resp.body().unwrap();
     ResponseOutparam::set(out, Ok(resp));
     let stream = outgoing_body.write().unwrap();
-    let _ = stream.blocking_write_and_flush(body);
+    let _ = stream.blocking_write_and_flush(r.body.as_bytes());
     drop(stream);
     let _ = OutgoingBody::finish(outgoing_body, None);
 }

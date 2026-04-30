@@ -3,6 +3,31 @@
 
 : "${BASE_URL:=http://127.0.0.1:8000}"
 : "${VERBOSE:=0}"
+: "${COOKIE_JAR:=/tmp/ocelaudit-cookie-jar}"
+
+# login_as USERNAME PASSWORD — POSTs to /api/v1/auth/login and stores
+# the session cookie in $COOKIE_JAR. Subsequent curl calls in this
+# script can use `--cookie $COOKIE_JAR` to be authenticated.
+login_as() {
+  local user="$1" pass="$2"
+  rm -f "$COOKIE_JAR"
+  local status
+  status=$(curl -sS -o /dev/null -w "%{http_code}" \
+    -c "$COOKIE_JAR" \
+    -H 'content-type: application/json' \
+    -X POST "$BASE_URL/api/v1/auth/login" \
+    --data "$(printf '{"username":"%s","password":"%s"}' "$user" "$pass")")
+  if [ "$status" = "200" ]; then
+    _pass_msg "login_as $user -> 200"
+    return 0
+  fi
+  _fail_msg "login_as $user" "expected 200, got $status"
+  return 1
+}
+
+# Authenticated curl wrappers.
+auth_curl() { curl -sS -b "$COOKIE_JAR" "$@"; }
+auth_get_status() { curl -sS -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" "$1"; }
 
 _pass=0
 _fail=0
