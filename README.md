@@ -111,7 +111,7 @@ Trust-boundary diagram lands in M6 when the SPA appears.
 | Codegen      | wit-bindgen 0.54  | Matches upstream wasmCloud fixtures Cargo.lock pin.      | older 0.42-0.50 series.            |
 | WIT fetch    | wkg 0.15.0        | wash 2.0.4's bundled wkg mis-decodes text-WIT overrides. | wash's bundled wkg (broken).       |
 | Search       | Hand-rolled (BM25 + Jaro-Winkler + trigrams) | tantivy fails to compile to wasm32-wasip2 (zstd-sys C dep can't target the triple). Fallback gets 100% top-10 recall on the 10k-record fixture at p95 0.60 ms. See `docs/m1-search-engine-decision.md`. | tantivy default, tantivy single-thread (both blocked on C toolchain). |
-| Storage      | JSON-on-disk (M2 default) | Simplest substrate that works. SQLite + Turso land in M11 alongside the same surface; one-line `wadm` swap. | rusqlite-bundled (wasi-sdk linker dance), KV via host bindings. |
+| Storage      | JSON-on-disk (default) + in-memory (M11 alt) | `pub trait Storage`. Two impls, swap via `STORAGE_BACKEND` env. SQLite + Turso documented as wasi-sdk future work in `docs/storage-backends.md`. | rusqlite-bundled, turso (both block on the same wasi-sdk dance), KV via host bindings. |
 | UI           | TBD M6            | Vite + Preact + TS planned.                              | React, SolidJS.                    |
 | Passwords    | Argon2id          | Standard.                                                | bcrypt, scrypt.                    |
 | Supply chain | cargo-auditable + CycloneDX + SLSA attestations | wasmCloud-recommended chain. | unsigned, sigstore-only.           |
@@ -332,7 +332,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 - M8 ✅ — Audit (paginated list + click-through to detail with full decision history), Review (queue with cleared/blocked decision UI + required note), Admin (admin-only: "Update CSL now" button + threshold display). 5 pages now. Bundle: 40 KB JS, 14 KB CSS, gzipped 16 KB total.
 - M9 ✅ — `/api/v1/branding` endpoint reads `/data/static/ocelaudit.config.json` (logo, wordmark, video, colors); missing keys fall back to defaults. SPA loads it on boot, applies CSS custom properties, plays the optional login video. 10 new API assertions; brand swap recipe in README below.
 - M10 ✅ — `make demo` (cold-start bootstrap, prints URL + creds, opens browser); `make stats` (per-component wasm size table from real artefacts); `docs/demo-script.md` (90-second walkthrough hitting every TLP outcome).
-- M11 — Alternative storage backends (sqlite + turso).
+- M11 ✅ — Extracted `pub trait Storage` (16 methods, object-safe). `JsonFsStorage` (M2) + `MemoryStorage` (new, ephemeral) both implement it. Gateway holds `Box<dyn Storage>` and dispatches on `STORAGE_BACKEND` env (`jsonfs:<dir>` / `memory:`). SQLite + Turso documented as future work in `docs/storage-backends.md` — both blocked on wasi-sdk, with a complete walkthrough of how to unblock them.
 
 Known issues (will not be quietly removed once acknowledged):
 - WASI P3 not usable on wash 2.0.4 — see "WASI P3 caveats". Tracked upstream in [wasmCloud#5028](https://github.com/wasmCloud/wasmCloud/issues/5028).

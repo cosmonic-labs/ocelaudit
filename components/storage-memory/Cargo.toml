@@ -1,0 +1,17 @@
+[package]
+name = "ocelaudit-storage-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "OcelAudit storage backend — ephemeral in-memory. M11 reference impl proving the Storage trait is real."
+
+[lib]
+name = "ocelaudit_storage_memory"
+
+[dependencies]
+ocelaudit-search = { path = "../search" }
+ocelaudit-storage-jsonfs = { path = "../storage-jsonfs" }
+argon2 = { version = "0.5", features = ["std"] }
+password-hash = { version = "0.5", features = ["std", "getrandom"] }

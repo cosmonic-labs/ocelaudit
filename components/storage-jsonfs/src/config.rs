@@ -2,13 +2,17 @@ use crate::StorageError;
 
 /// Parsed `STORAGE_BACKEND` env value.
 ///
-/// M2 only accepts the `jsonfs:` prefix. M11 will add `sqlite:` and
-/// `turso:` here as new variants — *not* by editing the parser to be
-/// backend-aware, but by adding new `StorageBackend::*` cases. Keeps the
-/// "new module, not a refactor" promise from PLAN.md §1.3 honest.
+/// `jsonfs:<dir>` is the production-ready default since M2.
+/// `memory:` is M11's reference second backend — ephemeral in-process
+/// storage for tests, demos, and the CI matrix.
+/// `sqlite:` and `turso:` are accepted in the parser but reject at
+/// runtime with a documented next-step pointer; both require a
+/// wasi-sdk linker setup that's out of scope for this demo. See
+/// `docs/storage-backends.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageBackend {
     JsonFs { path: String },
+    Memory,
 }
 
 pub fn parse_storage_backend(raw: &str) -> Result<StorageBackend, StorageError> {
@@ -21,20 +25,25 @@ pub fn parse_storage_backend(raw: &str) -> Result<StorageBackend, StorageError> 
         }
         return Ok(StorageBackend::JsonFs { path: rest.into() });
     }
+    if raw == "memory:" || raw == "memory" {
+        return Ok(StorageBackend::Memory);
+    }
     if raw.starts_with("sqlite:") {
         return Err(StorageError::InvalidConfig(format!(
-            "STORAGE_BACKEND={} — sqlite backend lands in M11. Use jsonfs:<dir> for now.",
+            "STORAGE_BACKEND={} — sqlite backend needs a wasi-sdk-built rusqlite. \
+             See docs/storage-backends.md for the path forward.",
             raw
         )));
     }
     if raw.starts_with("turso:") {
         return Err(StorageError::InvalidConfig(format!(
-            "STORAGE_BACKEND={} — turso backend lands in M11. Use jsonfs:<dir> for now.",
+            "STORAGE_BACKEND={} — turso (formerly Limbo) needs a wasi-sdk-built mimalloc. \
+             See docs/storage-backends.md for the path forward.",
             raw
         )));
     }
     Err(StorageError::InvalidConfig(format!(
-        "STORAGE_BACKEND={} is not understood. Supported in M2: jsonfs:<dir>",
+        "STORAGE_BACKEND={} is not understood. Supported: jsonfs:<dir>, memory:",
         raw
     )))
 }
@@ -59,19 +68,25 @@ mod tests {
     }
 
     #[test]
-    fn rejects_sqlite_in_m2_with_pointer_to_m11() {
+    fn rejects_sqlite_with_pointer_to_storage_doc() {
         let err = parse_storage_backend("sqlite:/data/ocelaudit.db")
             .unwrap_err()
             .to_string();
-        assert!(err.contains("M11"));
+        assert!(err.contains("docs/storage-backends.md"));
     }
 
     #[test]
-    fn rejects_turso_in_m2_with_pointer_to_m11() {
+    fn rejects_turso_with_pointer_to_storage_doc() {
         let err = parse_storage_backend("turso:/data/ocelaudit.db")
             .unwrap_err()
             .to_string();
-        assert!(err.contains("M11"));
+        assert!(err.contains("docs/storage-backends.md"));
+    }
+
+    #[test]
+    fn parses_memory() {
+        assert_eq!(parse_storage_backend("memory:").unwrap(), StorageBackend::Memory);
+        assert_eq!(parse_storage_backend("memory").unwrap(), StorageBackend::Memory);
     }
 
     #[test]

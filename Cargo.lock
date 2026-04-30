@@ -283,6 +283,7 @@ dependencies = [
  "ocelaudit-csl-ingest",
  "ocelaudit-search",
  "ocelaudit-storage-jsonfs",
+ "ocelaudit-storage-memory",
  "serde",
  "serde_json",
  "sha2",
@@ -319,6 +320,16 @@ dependencies = [
  "password-hash",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "ocelaudit-storage-memory"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "ocelaudit-search",
+ "ocelaudit-storage-jsonfs",
+ "password-hash",
 ]
 
 [[package]]

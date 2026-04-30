@@ -5,6 +5,7 @@ members = [
     "components/csl-ingest",
     "components/search",
     "components/storage-jsonfs",
+    "components/storage-memory",
 ]
 
 [workspace.package]

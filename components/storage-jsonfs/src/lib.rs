@@ -29,6 +29,49 @@ pub mod config;
 
 pub use config::{parse_storage_backend, StorageBackend};
 
+/// The storage interface OcelAudit's gateway talks to. Implementations:
+/// `JsonFsStorage` (this crate), `MemoryStorage` (sibling crate
+/// `ocelaudit-storage-memory`). SQLite + Turso land later when wasi-sdk
+/// is wired up — see `docs/storage-backends.md` for the gap.
+///
+/// All methods take `&self` so a single instance can serve concurrent
+/// reads. The wasmCloud runtime is single-threaded inside a component;
+/// the `Send + Sync` bounds are belt-and-braces for future flexibility.
+pub trait Storage: Send + Sync {
+    // ----- csl-records -----
+    fn csl_metadata(&self) -> Result<Option<CslMetadata>>;
+    fn csl_list_all(&self) -> Result<Vec<CslEntry>>;
+    fn csl_list_by_source(&self, source: &str) -> Result<Vec<CslEntry>>;
+    fn csl_get(&self, id: &str) -> Result<Option<CslEntry>>;
+    fn csl_bulk_replace(
+        &self,
+        entries: Vec<CslEntry>,
+        fetched_at: u64,
+        version: String,
+    ) -> Result<()>;
+
+    // ----- audit -----
+    fn audit_log(&self, event: &SearchEvent) -> Result<String>;
+    fn audit_list_recent(&self, limit: usize, offset: usize) -> Result<Vec<SearchEvent>>;
+    fn audit_get(&self, audit_id: &str) -> Result<Option<SearchEvent>>;
+
+    // ----- users -----
+    fn users_seed_if_empty(&self) -> Result<Option<SeededCredentials>>;
+    fn users_list(&self) -> Result<Vec<User>>;
+    fn users_get(&self, username: &str) -> Result<Option<User>>;
+    fn users_verify(&self, username: &str, password: &str) -> Result<Option<PublicUser>>;
+
+    // ----- workflow -----
+    fn workflow_log(&self, entry: &WorkflowEntry) -> Result<()>;
+    fn workflow_history(&self, audit_id: &str) -> Result<Vec<WorkflowEntry>>;
+    fn workflow_recent(&self, limit: usize) -> Result<Vec<WorkflowEntry>>;
+
+    /// Where this backend persists data. Used by api-gateway to colocate
+    /// the session signing key. Memory-only backends should return
+    /// a stable in-process path under `/tmp` or similar.
+    fn root_path(&self) -> &Path;
+}
+
 #[derive(Debug)]
 pub enum StorageError {
     Io(std::io::Error),
@@ -409,6 +452,66 @@ fn generate_password() -> String {
         .iter()
         .map(|b| alphabet[(*b as usize) % alphabet.len()] as char)
         .collect::<String>()
+}
+
+impl Storage for JsonFsStorage {
+    fn csl_metadata(&self) -> Result<Option<CslMetadata>> {
+        Self::csl_metadata(self)
+    }
+    fn csl_list_all(&self) -> Result<Vec<CslEntry>> {
+        Self::csl_list_all(self)
+    }
+    fn csl_list_by_source(&self, source: &str) -> Result<Vec<CslEntry>> {
+        Self::csl_list_by_source(self, source)
+    }
+    fn csl_get(&self, id: &str) -> Result<Option<CslEntry>> {
+        Self::csl_get(self, id)
+    }
+    fn csl_bulk_replace(
+        &self,
+        entries: Vec<CslEntry>,
+        fetched_at: u64,
+        version: String,
+    ) -> Result<()> {
+        Self::csl_bulk_replace(self, entries, fetched_at, version)
+    }
+
+    fn audit_log(&self, event: &SearchEvent) -> Result<String> {
+        Self::audit_log(self, event)
+    }
+    fn audit_list_recent(&self, limit: usize, offset: usize) -> Result<Vec<SearchEvent>> {
+        Self::audit_list_recent(self, limit, offset)
+    }
+    fn audit_get(&self, audit_id: &str) -> Result<Option<SearchEvent>> {
+        Self::audit_get(self, audit_id)
+    }
+
+    fn users_seed_if_empty(&self) -> Result<Option<SeededCredentials>> {
+        Self::users_seed_if_empty(self)
+    }
+    fn users_list(&self) -> Result<Vec<User>> {
+        Self::users_list(self)
+    }
+    fn users_get(&self, username: &str) -> Result<Option<User>> {
+        Self::users_get(self, username)
+    }
+    fn users_verify(&self, username: &str, password: &str) -> Result<Option<PublicUser>> {
+        Self::users_verify(self, username, password)
+    }
+
+    fn workflow_log(&self, entry: &WorkflowEntry) -> Result<()> {
+        Self::workflow_log(self, entry)
+    }
+    fn workflow_history(&self, audit_id: &str) -> Result<Vec<WorkflowEntry>> {
+        Self::workflow_history(self, audit_id)
+    }
+    fn workflow_recent(&self, limit: usize) -> Result<Vec<WorkflowEntry>> {
+        Self::workflow_recent(self, limit)
+    }
+
+    fn root_path(&self) -> &Path {
+        self.root()
+    }
 }
 
 #[cfg(test)]
