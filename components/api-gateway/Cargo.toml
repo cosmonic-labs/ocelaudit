@@ -15,4 +15,5 @@ crate-type = ["cdylib"]
 wit-bindgen.workspace = true
 ocelaudit-storage-jsonfs = { path = "../storage-jsonfs" }
 ocelaudit-search = { path = "../search" }
+ocelaudit-csl-ingest = { path = "../csl-ingest" }
 serde_json = "1"

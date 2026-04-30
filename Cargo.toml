@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "components/api-gateway",
+    "components/csl-ingest",
     "components/search",
     "components/storage-jsonfs",
 ]

@@ -1,0 +1,23 @@
+[package]
+name = "ocelaudit-csl-ingest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "OcelAudit CSL ingest — fetch ITA's consolidated.json, parse, hand to storage."
+
+[lib]
+name = "ocelaudit_csl_ingest"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ocelaudit-search = { path = "../search" }
+
+[features]
+default = []
+# Enables the wasi:http/outgoing-handler fetch path. Disabled in `cargo test`
+# (which runs on the host target where the WASI imports aren't linked) so
+# the parser/transform logic stays unit-testable.
+wasi-http = []

@@ -126,9 +126,10 @@ Trust-boundary diagram lands in M6 when the SPA appears.
 
 | Component   | Role                          | Wasm size           | Image ref                                          |
 |-------------|-------------------------------|---------------------|----------------------------------------------------|
-| api-gateway | HTTP entry, routes, auth, TLP | 236 KB (release, M2; storage compiled in) | `ghcr.io/<owner>/ocelaudit-api-gateway:<tag>` |
+| api-gateway | HTTP entry, routes, auth, TLP | 301 KB (release, M3; storage + csl-ingest compiled in) | `ghcr.io/<owner>/ocelaudit-api-gateway:<tag>` |
 | search      | BM25 + JW search engine       | host-target only at M1; .wasm landed when wired in M3+ | `ghcr.io/<owner>/ocelaudit-search:<tag>` |
-| storage-jsonfs | JSON-on-disk persistence   | compiled into api-gateway in M2 (no separate .wasm yet); separate component lands when WIT plumbing splits in M3+ | `ghcr.io/<owner>/ocelaudit-storage-jsonfs:<tag>` |
+| storage-jsonfs | JSON-on-disk persistence   | compiled into api-gateway in M2 (no separate .wasm yet); separate component lands when WIT plumbing splits | `ghcr.io/<owner>/ocelaudit-storage-jsonfs:<tag>` |
+| csl-ingest  | Parse ITA CSL JSON → CslEntry | compiled into api-gateway in M3; HTTP fetch deferred (see caveats) | `ghcr.io/<owner>/ocelaudit-csl-ingest:<tag>` |
 
 (Other rows land with their components.)
 
@@ -183,7 +184,8 @@ What the attestation **does** prove: this `.wasm` came from the commit named in 
 - Demo authentication uses two static seeded accounts. No real OAuth/SSO.
 - Sessions don't survive a host restart.
 - "PEP screening" is approximated from CSL signals — not a true PEP feed.
-- Scheduled CSL refresh (M3) is in-process, not host cron.
+- **CSL refresh (M3) reads from a file path under the wash dev volume mount, not a live trade.gov HTTP fetch.** Drop your `consolidated.json` at `/data/csl/seed.json` (host: `.cache/ocelaudit-data/csl/seed.json`) and POST `/api/v1/csl/refresh`. Real `wasi:http/outgoing-handler` fetch lands later. Reason: implementing it pulls in the `wstd` async-runtime dep, which we deferred to keep M3 focused on the parse/store path.
+- No in-process scheduled refresh. WASI P2 components are request/response — they don't run loops between calls. Use an external scheduler (cron, systemd timer, k8s CronJob) that hits `/api/v1/csl/refresh`.
 - No HTTPS termination. Plain HTTP only.
 
 **This is a demo, not a product.**
@@ -232,7 +234,7 @@ Common gotchas:
 | `SESSION_SIGNING_KEY`  | _generated on first start_ | hex          | api-gateway     | M4         | Signs session cookies.                       |
 | `TLP_RED_THRESHOLD`    | `0.95`                     | float        | search          | M1         | Hits ≥ this score are RED.                   |
 | `TLP_YELLOW_THRESHOLD` | `0.75`                     | float        | search          | M1         | Hits ≥ this and < red are YELLOW.            |
-| `CSL_REFRESH_URL`      | `https://api.trade.gov/static/consolidated_screening_list/consolidated.json` | URL | csl-ingest | M3 | CSL data feed.            |
+| `CSL_SEED_PATH` (de-facto) | `/data/csl/seed.json` (hardcoded in M3) | path | api-gateway | M3 | Where `/api/v1/csl/refresh` reads from. Configurable via env in a later milestone alongside `CSL_REFRESH_URL` for the live HTTP fetch path. |
 
 ---
 
@@ -295,7 +297,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 - M0 ✅ — Bootstrap + CI; api-gateway hello-world; release.yml wired.
 - M1 ✅ — Hand-rolled search engine (tantivy ruled out on wasi-toolchain grounds); 10k-record fixture suite with 100% top-1 / top-10 / TLP and p95 0.60 ms; decision frozen at `docs/m1-search-engine-decision.md`.
 - M2 ✅ — `storage-jsonfs` over `wasi:filesystem`: csl-records, audit, users (Argon2id-seeded), workflow. 17 unit tests + 8 API assertions; api-gateway exposes `/healthz`, `/api/v1/me`, `/api/v1/audit/_test`.
-- M3 — CSL ingest + scheduled refresh.
+- M3 ✅ — `csl-ingest` parser + 9-source-list fixture; `/api/v1/csl/{metadata,refresh,sources,entries/{id}}`. Refresh reads `/data/csl/seed.json` from the volume mount (real HTTP fetch is in caveats below).
 - M4 — API gateway routes (no UI yet).
 - M5 — Hit workflow polish + screening conveniences.
 - M6 — Static-assets component + SPA shell.

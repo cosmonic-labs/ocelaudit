@@ -1,0 +1,128 @@
+{
+  "results": [
+    {
+      "id": "OFAC-12345",
+      "name": "ACME HOLDINGS PYONGYANG",
+      "alt_names": ["Acme Holdings", "Acme P.Y."],
+      "type": "Entity",
+      "source": "Specially Designated Nationals (SDN) - Treasury Department",
+      "programs": ["DPRK"],
+      "addresses": [
+        {"address": "Kim Il Sung Square", "city": "Pyongyang", "country": "Korea, North"}
+      ],
+      "nationalities": ["KP"],
+      "source_information_url": "https://ofac.treasury.gov/recent-actions",
+      "federal_register_notice": "85 FR 18020"
+    },
+    {
+      "id": "BIS-EL-9001",
+      "name": "Tehran Aerospace Industries Group",
+      "alt_names": ["TAIG"],
+      "type": "Entity",
+      "source": "Entity List (EL) - Bureau of Industry and Security",
+      "programs": ["IR-MIL"],
+      "addresses": [
+        {"address": "PO Box 13885-768", "city": "Tehran", "country": "Iran"}
+      ],
+      "nationalities": ["IR"]
+    },
+    {
+      "id": "BIS-UVL-202",
+      "name": "Caspian Trading LLC",
+      "alt_names": [],
+      "type": "Entity",
+      "source": "Unverified List (UVL) - Bureau of Industry and Security",
+      "programs": [],
+      "addresses": [{"city": "Baku", "country": "Azerbaijan"}],
+      "nationalities": ["AZ"]
+    },
+    {
+      "id": "OFAC-SDN-6789",
+      "name": "MULLER, Hans",
+      "alt_names": ["Mueller, Hans", "Hans Mueller"],
+      "type": "Individual",
+      "source": "Specially Designated Nationals (SDN) - Treasury Department",
+      "programs": ["EU-FRZ"],
+      "addresses": [{"city": "Hamburg", "country": "Germany"}],
+      "nationalities": ["DE"],
+      "citizenships": ["DE"],
+      "dates_of_birth": ["1972-05-13"],
+      "places_of_birth": ["Hamburg, Germany"]
+    },
+    {
+      "id": "DTC-DPL-401",
+      "name": "Khan, Abdul Q.",
+      "alt_names": ["Abdul Qadeer Khan"],
+      "type": "Individual",
+      "source": "ITAR Debarred (DTC) - State Department",
+      "programs": ["NUCLEAR"],
+      "addresses": [{"city": "Karachi", "country": "Pakistan"}],
+      "nationalities": ["PK"]
+    },
+    {
+      "id": "OFAC-VESSEL-555",
+      "name": "MV SEA STAR",
+      "alt_names": ["Sea Star"],
+      "type": "Vessel",
+      "source": "Specially Designated Nationals (SDN) - Treasury Department",
+      "programs": ["NK-VESSEL"],
+      "addresses": [{"country": "Korea, North"}],
+      "vessel_flag": "DPRK",
+      "tonnage": "5400"
+    },
+    {
+      "id": "OFAC-AIR-101",
+      "name": "Aircraft N12345",
+      "alt_names": ["N12345"],
+      "type": "Aircraft",
+      "source": "Specially Designated Nationals (SDN) - Treasury Department",
+      "programs": ["IR-AIR"],
+      "addresses": [{"country": "Iran"}]
+    },
+    {
+      "id": "OFAC-FSE-7",
+      "name": "Foreign Evader Holdings",
+      "alt_names": [],
+      "type": "Entity",
+      "source": "Foreign Sanctions Evaders (FSE) - Treasury Department",
+      "programs": ["IRAN"],
+      "addresses": [{"city": "Dubai", "country": "United Arab Emirates"}]
+    },
+    {
+      "id": "OFAC-PLC-3",
+      "name": "Sample PLC Member",
+      "alt_names": [],
+      "type": "Individual",
+      "source": "Palestinian Legislative Council List (PLC) - Treasury Department",
+      "programs": [],
+      "nationalities": ["PS"]
+    },
+    {
+      "id": "OFAC-NS-MBS-44",
+      "name": "Bank of Restricted Activity",
+      "alt_names": ["BORA"],
+      "type": "Entity",
+      "source": "Non-SDN Menu-Based Sanctions List - Treasury Department",
+      "programs": ["RU-FSE"],
+      "addresses": [{"city": "Moscow", "country": "Russia"}]
+    },
+    {
+      "id": "OFAC-NS-ISA-9",
+      "name": "Iran Refining Operations",
+      "alt_names": [],
+      "type": "Entity",
+      "source": "Non-SDN Iran Sanctions Act List - Treasury Department",
+      "programs": ["IR-OIL"],
+      "addresses": [{"city": "Tehran", "country": "Iran"}]
+    },
+    {
+      "id": "OFAC-CAPTA-2",
+      "name": "Sample CAPTA Bank",
+      "alt_names": [],
+      "type": "Entity",
+      "source": "Correspondent Account Or Payable-Through Account Sanctions (CAPTA) - Treasury Department",
+      "programs": ["FOREIGN"],
+      "addresses": [{"city": "Caracas", "country": "Venezuela"}]
+    }
+  ]
+}

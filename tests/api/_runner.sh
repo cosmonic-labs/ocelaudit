@@ -15,6 +15,11 @@ mkdir -p .cache
 # wash dev's volume mount requires the host_path to exist before launch.
 # api-gateway's .wash/config.yaml mounts ../../.cache/ocelaudit-data → /data.
 mkdir -p .cache/ocelaudit-data
+mkdir -p .cache/ocelaudit-data/csl
+
+# Pre-stage the CSL fixture into the volume so M3's /api/v1/csl/refresh
+# has something to read (the gateway expects /data/csl/seed.json).
+cp tests/fixtures/csl/sample.json .cache/ocelaudit-data/csl/seed.json
 
 cleanup() {
   local code=$?
