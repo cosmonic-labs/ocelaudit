@@ -193,9 +193,10 @@ fn users_seed_writes_file_and_returns_credentials_once() {
     let s = JsonFsStorage::open(d.path()).unwrap();
 
     let creds = s.users_seed_if_empty().unwrap().expect("first seed");
-    assert!(creds.admin_password.len() >= 16);
-    assert!(creds.compliance_password.len() >= 16);
-    assert_ne!(creds.admin_password, creds.compliance_password);
+    // Demo-only fixed credentials. Real deployments rotate these
+    // through the (forthcoming) admin flow.
+    assert_eq!(creds.admin_password, super::DEMO_ADMIN_PASSWORD);
+    assert_eq!(creds.compliance_password, super::DEMO_COMPLIANCE_PASSWORD);
 
     // Second call is a no-op.
     assert!(s.users_seed_if_empty().unwrap().is_none());

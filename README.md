@@ -15,7 +15,7 @@ OcelAudit is a CNCF wasmCloud v2 demonstration that screens entities (people, or
 
 **This is a demo, not a product.** Specifically:
 - No HTTPS termination — wasmCloud serves plain HTTP. Put a reverse proxy in front for any real deployment.
-- Demo authentication only — two seeded users (`admin`, `compliance`) with Argon2id-hashed passwords. No OAuth, no SSO.
+- Demo authentication only — two seeded users with **fixed default passwords**: `admin/admin` and `compliance/compliance`. Argon2id-hashed at rest; the seed values are constants in `components/storage-jsonfs/src/lib.rs`. Rotate before any real deployment. No OAuth, no SSO.
 - Single-tenant. No org isolation, no multi-tenant data partitioning.
 - No SLA on the CSL data feed. The trade.gov endpoint changes paths historically.
 - Sessions don't survive a host restart.
@@ -34,9 +34,10 @@ Who this is for:
 make demo
 ```
 
-Banner shows the URL (`http://127.0.0.1:8000/`) and two random
-passwords (admin + compliance). The browser opens automatically.
-See [`docs/demo-script.md`](docs/demo-script.md) for the 90-second
+Banner shows the URL (`http://127.0.0.1:8000/`) and the demo
+credentials (`admin / admin` and `compliance / compliance`). The
+browser opens automatically. See
+[`docs/demo-script.md`](docs/demo-script.md) for the 90-second
 walkthrough that hits every TLP outcome and the full review flow.
 
 Cold-start budget: < 5 minutes from clean clone (per PLAN.md M10).

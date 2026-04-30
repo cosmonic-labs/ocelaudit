@@ -3,12 +3,11 @@
 A scripted demo that hits every TLP outcome and the full review flow.
 Total time on a warm machine: about 90 seconds.
 
-Prereqs: `make demo` is up. Two random passwords are visible in the
-terminal that started it.
+Prereqs: `make demo` is up.
 
 ## Beat 1 — sign in (10 s)
 
-Sign in as `compliance` (use the password from the demo banner).
+Sign in as `compliance / compliance` (the seeded demo credentials).
 Land on the Dashboard. KPI cards show the live state — CSL record
 count, last refresh, TLP histogram. Note this is *not* a static demo;
 every count is a real read against `wasi:filesystem`.
@@ -63,7 +62,7 @@ This is the full-history audit trail PLAN.md M5 calls out as the
 
 ## Beat 7 — admin (10 s)
 
-Sign out (top-right). Sign in as `admin`. Note the **Admin** nav
+Sign out (top-right). Sign in as `admin / admin`. Note the **Admin** nav
 link is now visible (compliance role doesn't see it). Click it.
 Press **Update CSL now**. The KPI updates. Mention that in
 production this would also fire on a schedule via an external cron

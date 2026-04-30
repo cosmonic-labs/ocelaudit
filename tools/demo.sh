@@ -106,36 +106,14 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-# ---------- scrape creds (with retry — stderr can lag /healthz) ----------
+# ---------- seed creds ----------
 
-# `sed -nE '...p'` only prints on a successful match — so a partial /
-# unflushed log line can't pass-through as garbage. Loop until both
-# passwords are populated or we time out.
-admin_pw=""
-compl_pw=""
-deadline=$(( $(date +%s) + 30 ))
-while [ "$(date +%s)" -lt "$deadline" ]; do
-  line=$(grep -m1 "ocelaudit: seeded users.json" "$LOG" 2>/dev/null || true)
-  if [ -n "$line" ]; then
-    a=$(printf "%s" "$line" | sed -nE 's/.*admin password: ([A-Za-z0-9]+).*/\1/p')
-    c=$(printf "%s" "$line" | sed -nE 's/.*compliance password: ([A-Za-z0-9]+).*/\1/p')
-    if [ -n "$a" ] && [ -n "$c" ]; then
-      admin_pw="$a"
-      compl_pw="$c"
-      break
-    fi
-  fi
-  # Force a request that triggers the seed if we haven't yet.
-  curl -fsS -o /dev/null -m 1 "http://127.0.0.1:8000/healthz" 2>/dev/null || true
-  sleep 0.5
-done
-
-if [ -z "$admin_pw" ] || [ -z "$compl_pw" ]; then
-  echo "!! seed credentials not scraped within 30s"
-  echo "!! tail of wash dev log:"
-  tail -n 30 "$LOG" || true
-  exit 1
-fi
+# Demo seed credentials are fixed values (DEMO_ADMIN_PASSWORD /
+# DEMO_COMPLIANCE_PASSWORD in the storage crate). One ping to /healthz
+# kicks the lazy startup so users.json gets written before login.
+admin_pw="admin"
+compl_pw="compliance"
+curl -fsS -o /dev/null -m 1 "http://127.0.0.1:8000/healthz" || true
 
 # ---------- login + ingest (with graceful fallback) ----------
 

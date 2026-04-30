@@ -301,33 +301,37 @@ impl JsonFsStorage {
 
     // ----- users -----
 
-    /// Seed the users table on first boot if empty. Generates a fresh
-    /// random password for both `admin` and `compliance`, hashes them
-    /// with Argon2id, writes `users.json` atomically, and returns the
-    /// plaintext credentials so the caller can log them to stderr
-    /// exactly once.
+    /// Seed the users table on first boot if empty. Both seeded accounts
+    /// get well-known demo passwords (`admin:admin`, `compliance:compliance`);
+    /// hashes are still Argon2id, written atomically. Returns the plaintext
+    /// credentials so the caller can log them once.
+    ///
+    /// Demo-only ergonomics. Real deployments must override these via the
+    /// (forthcoming) admin "rotate password" flow or by editing users.json
+    /// directly. The README's "What this is, and what it isn't" section
+    /// calls this out as one of the seeded accounts being demo-fixed.
     pub fn users_seed_if_empty(&self) -> Result<Option<SeededCredentials>> {
         if self.path("users.json").exists() {
             return Ok(None);
         }
-        let admin_pw = generate_password();
-        let compl_pw = generate_password();
+        let admin_pw = DEMO_ADMIN_PASSWORD;
+        let compl_pw = DEMO_COMPLIANCE_PASSWORD;
         let users = vec![
             User {
                 username: "admin".into(),
                 role: Role::Admin,
-                password_hash: hash_password(&admin_pw)?,
+                password_hash: hash_password(admin_pw)?,
             },
             User {
                 username: "compliance".into(),
                 role: Role::Compliance,
-                password_hash: hash_password(&compl_pw)?,
+                password_hash: hash_password(compl_pw)?,
             },
         ];
         self.write_atomic(self.path("users.json"), &users)?;
         Ok(Some(SeededCredentials {
-            admin_password: admin_pw,
-            compliance_password: compl_pw,
+            admin_password: admin_pw.to_string(),
+            compliance_password: compl_pw.to_string(),
         }))
     }
 
@@ -432,6 +436,12 @@ pub struct SeededCredentials {
     pub compliance_password: String,
 }
 
+/// Demo-only seed credentials. Both implementations of `Storage` use
+/// these. Documented in the README so the demo banner doesn't need to
+/// scrape stderr for random values anymore.
+pub const DEMO_ADMIN_PASSWORD: &str = "admin";
+pub const DEMO_COMPLIANCE_PASSWORD: &str = "compliance";
+
 fn hash_password(plain: &str) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon = Argon2::default();
@@ -439,19 +449,6 @@ fn hash_password(plain: &str) -> Result<String> {
         .hash_password(plain.as_bytes(), &salt)
         .map_err(|e| StorageError::Argon(e.to_string()))?;
     Ok(hash.to_string())
-}
-
-/// Generate a 24-char URL-safe random password. Not for humans to type;
-/// for the demo runner to copy out of the seed-log line.
-fn generate_password() -> String {
-    use argon2::password_hash::rand_core::RngCore;
-    let mut bytes = [0u8; 18];
-    OsRng.fill_bytes(&mut bytes);
-    let alphabet = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-    bytes
-        .iter()
-        .map(|b| alphabet[(*b as usize) % alphabet.len()] as char)
-        .collect::<String>()
 }
 
 impl Storage for JsonFsStorage {

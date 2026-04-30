@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use argon2::password_hash::rand_core::{OsRng, RngCore};
+use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use ocelaudit_search::CslEntry;
@@ -168,14 +168,14 @@ impl Storage for MemoryStorage {
         if i.seeded {
             return Ok(None);
         }
-        let admin_pw = generate_password();
-        let compl_pw = generate_password();
+        let admin_pw = ocelaudit_storage_jsonfs::DEMO_ADMIN_PASSWORD;
+        let compl_pw = ocelaudit_storage_jsonfs::DEMO_COMPLIANCE_PASSWORD;
         i.users.insert(
             "admin".into(),
             User {
                 username: "admin".into(),
                 role: Role::Admin,
-                password_hash: hash_password(&admin_pw)?,
+                password_hash: hash_password(admin_pw)?,
             },
         );
         i.users.insert(
@@ -183,13 +183,13 @@ impl Storage for MemoryStorage {
             User {
                 username: "compliance".into(),
                 role: Role::Compliance,
-                password_hash: hash_password(&compl_pw)?,
+                password_hash: hash_password(compl_pw)?,
             },
         );
         i.seeded = true;
         Ok(Some(SeededCredentials {
-            admin_password: admin_pw,
-            compliance_password: compl_pw,
+            admin_password: admin_pw.to_string(),
+            compliance_password: compl_pw.to_string(),
         }))
     }
 
@@ -254,16 +254,6 @@ fn hash_password(plain: &str) -> Result<String> {
         .hash_password(plain.as_bytes(), &salt)
         .map_err(|e| StorageError::Argon(e.to_string()))?;
     Ok(hash.to_string())
-}
-
-fn generate_password() -> String {
-    let mut bytes = [0u8; 18];
-    OsRng.fill_bytes(&mut bytes);
-    let alphabet = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-    bytes
-        .iter()
-        .map(|b| alphabet[(*b as usize) % alphabet.len()] as char)
-        .collect::<String>()
 }
 
 #[cfg(test)]

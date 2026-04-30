@@ -91,11 +91,11 @@ export function Login({ brand, onLogin }: Props) {
           </button>
         </form>
         <p class="mt-6 text-xs text-neutral-500">
-          Two demo accounts are seeded on first boot ({" "}
-          <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">admin</code>,{" "}
-          <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">compliance</code>
-          ). The host logs the random passwords once to stderr — copy
-          from the wash dev output.
+          Demo credentials:{" "}
+          <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">admin / admin</code>{" "}
+          ·{" "}
+          <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">compliance / compliance</code>
+          . Both are fixed defaults — rotate before any real deployment.
         </p>
       </div>
     </main>
