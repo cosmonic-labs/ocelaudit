@@ -1,15 +1,20 @@
 # OcelAudit's pinned wash version.
 #
 # Default path: use the released `wash` binary on $PATH at this version.
-#   wash 2.0.4 has the wasip3 feature compiled in (verified 2026-04-30 via
-#   `strings $(which wash) | grep wasip3`); see .wash/config.yaml for the
-#   `dev.wasip3: true` knob.
+# wash 2.0.4 was tested locally during M0 (2026-04-30) and produced the
+# expected end-to-end behavior on macOS (P2 component, wash dev, curl).
+# However, v2.0.4 was published WITHOUT a Linux binary asset, so CI must
+# pin to v2.0.5 (the next release). For all practical purposes wash 2.0.5
+# is a drop-in replacement on the WASI P2 path we use; its P3 runtime
+# story has not been re-verified — see PLAN.md §0 / README "WASI P3
+# caveats" for the as-of-2026-04-30 state.
 #
 # Escape hatch: if a future P3 capability we depend on lands in upstream
 # main but not in any tagged 2.0.x release, run `tools/build-wash.sh`. It
 # will clone wasmCloud at the SHA below and build wash with --features wasip3.
 # Update the SHA whenever you bump the escape hatch.
 
-released-version: 2.0.4
+local-tested-version: 2.0.4
+ci-pinned-version: 2.0.5
 escape-hatch-sha: 9cb476a46923529ea40ceeacd1ea2873e34f6375
 escape-hatch-recorded-on: 2026-04-30

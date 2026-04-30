@@ -195,7 +195,9 @@ Prereqs (macOS / Linux):
 rustup target add wasm32-wasip2
 brew install gh jq            # or your distro equivalent
 cargo install wkg             # standalone wkg 0.15+; wash's bundled one mis-decodes text-WIT
-# wash 2.0.4 from your package manager or https://wasmcloud.com/docs/installation
+# wash 2.0.5 from your package manager or https://wasmcloud.com/docs/installation
+# (v2.0.4 also works locally where it's installed, but lacks a published Linux
+# binary — CI must pin to v2.0.5; see tools/wash-version.txt)
 ```
 
 Then:

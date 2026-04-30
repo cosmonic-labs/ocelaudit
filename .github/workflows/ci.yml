@@ -31,7 +31,7 @@ jobs:
       - name: Setup wash
         uses: wasmCloud/setup-wash-action@main
         with:
-          wash-version: v2.0.4
+          wash-version: v2.0.5
 
       - name: Setup cargo-auditable wrapper
         uses: wasmcloud/actions/setup-wash-cargo-auditable@main
