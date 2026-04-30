@@ -63,7 +63,7 @@ export function Dashboard({ me }: Props) {
         <p class="text-sm text-neutral-500">loading metrics…</p>
       ) : (
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card title="CSL records" value={String(metrics.csl_count)} />
+          <Card title="CSL records" value={metrics.csl_count.toLocaleString()} href="/csl/status" />
           <Card
             title="Last refresh"
             value={
@@ -71,40 +71,83 @@ export function Dashboard({ me }: Props) {
                 ? new Date(metrics.last_csl_refresh * 1000).toISOString().slice(0, 19).replace("T", " ")
                 : "never"
             }
+            href="/csl/status"
           />
-          <Card title="Recent queries" value={String(metrics.queries_recent)} />
-          <Card title="Pending review" value={String(metrics.queue_depth)} />
-          <Tlp label="RED" count={metrics.tlp_histogram.red} color="red" />
-          <Tlp label="YELLOW" count={metrics.tlp_histogram.yellow} color="yellow" />
-          <Tlp label="GREEN" count={metrics.tlp_histogram.green} color="green" />
-          <Card title="CSL sources" value={String(metrics.csl_sources.length)} />
+          <Card title="Recent queries" value={String(metrics.queries_recent)} href="/audit" />
+          <Card title="Pending review" value={String(metrics.queue_depth)} href="/review" />
+          <Tlp label="RED" count={metrics.tlp_histogram.red} color="red" href="/audit?tlp=red" />
+          <Tlp label="YELLOW" count={metrics.tlp_histogram.yellow} color="yellow" href="/audit?tlp=yellow" />
+          <Tlp label="GREEN" count={metrics.tlp_histogram.green} color="green" href="/audit?tlp=green" />
+          <Card title="CSL sources" value={String(metrics.csl_sources.length)} href="/csl/status" />
         </div>
       )}
     </>
   );
 }
 
-function Card({ title, value }: { title: string; value: string }) {
-  return (
-    <div class="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+function Card({ title, value, href }: { title: string; value: string; href?: string }) {
+  const inner = (
+    <>
       <div class="text-xs uppercase tracking-wide text-neutral-500">{title}</div>
       <div class="mt-2 font-display text-2xl">{value}</div>
-    </div>
+    </>
   );
+  const cls =
+    "block rounded-lg border border-neutral-200 bg-white p-4 shadow-sm transition hover:border-ocelot-accent hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-ocelot-accent";
+  if (href) {
+    return (
+      <a
+        href={href}
+        class={cls}
+        onClick={(e) => {
+          e.preventDefault();
+          navigate(href);
+        }}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return <div class={cls}>{inner}</div>;
 }
 
-function Tlp({ label, count, color }: { label: string; count: number; color: "red" | "yellow" | "green" }) {
-  const dot =
-    color === "red" ? "bg-tlp-red" : color === "yellow" ? "bg-tlp-yellow" : "bg-tlp-green";
-  const text =
-    color === "red" ? "text-tlp-red" : color === "yellow" ? "text-tlp-yellow" : "text-tlp-green";
-  return (
-    <div class="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+function Tlp({
+  label,
+  count,
+  color,
+  href,
+}: {
+  label: string;
+  count: number;
+  color: "red" | "yellow" | "green";
+  href?: string;
+}) {
+  const dot = color === "red" ? "bg-tlp-red" : color === "yellow" ? "bg-tlp-yellow" : "bg-tlp-green";
+  const text = color === "red" ? "text-tlp-red" : color === "yellow" ? "text-tlp-yellow" : "text-tlp-green";
+  const cls =
+    "block rounded-lg border border-neutral-200 bg-white p-4 shadow-sm transition hover:border-ocelot-accent hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-ocelot-accent";
+  const inner = (
+    <>
       <div class="flex items-center gap-2">
         <span class={`inline-block h-2 w-2 rounded-full ${dot}`} aria-hidden />
         <span class="text-xs uppercase tracking-wide text-neutral-500">{label}</span>
       </div>
       <div class={`mt-2 font-display text-2xl ${text}`}>{count}</div>
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <a
+        href={href}
+        class={cls}
+        onClick={(e) => {
+          e.preventDefault();
+          navigate(href);
+        }}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return <div class={cls}>{inner}</div>;
 }

@@ -1,8 +1,10 @@
 //! Request routing for the gateway.
 
 use ocelaudit_csl_ingest::{parse_external_json, source_meta};
-use ocelaudit_search::{EntityType, SearchParams, Tlp};
-use ocelaudit_storage_jsonfs::{Role, SearchEvent, WorkflowEntry};
+use ocelaudit_search::{CslEntry, EntityType, SearchParams, Tlp};
+use ocelaudit_storage_jsonfs::{
+    HitCitation, HitSnapshot, HitTags, Role, SearchEvent, WorkflowEntry,
+};
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -85,6 +87,7 @@ fn dispatch_authed(
         (Method::Get, "/api/v1/me") => me(session),
 
         (Method::Get, "/api/v1/csl/metadata") => csl_metadata(app),
+        (Method::Get, "/api/v1/csl/stats") => csl_stats(app),
         (Method::Post, "/api/v1/csl/refresh") => {
             require_admin(session).unwrap_or_else(|| csl_refresh(app, in_.query_string))
         }
@@ -210,6 +213,91 @@ fn csl_metadata(app: &AppState) -> RouteResponse {
         ),
         Err(e) => RouteResponse::err(500, e.to_string()),
     }
+}
+
+fn csl_stats(app: &AppState) -> RouteResponse {
+    let metadata = match app.storage.csl_metadata() {
+        Ok(m) => m,
+        Err(e) => return RouteResponse::err(500, e.to_string()),
+    };
+    let entries = match app.storage.csl_list_all() {
+        Ok(e) => e,
+        Err(e) => return RouteResponse::err(500, e.to_string()),
+    };
+
+    // Aggregate per-source (with agency URLs), per-entity-type, top
+    // programs, top nationalities. Single linear scan over the corpus.
+    use std::collections::BTreeMap;
+    let mut by_source: BTreeMap<String, u32> = BTreeMap::new();
+    let mut by_entity: BTreeMap<&'static str, u32> = BTreeMap::new();
+    let mut by_program: BTreeMap<String, u32> = BTreeMap::new();
+    let mut by_nationality: BTreeMap<String, u32> = BTreeMap::new();
+    let mut with_addresses = 0u32;
+    let mut with_aliases = 0u32;
+    for e in &entries {
+        *by_source.entry(e.source_list.clone()).or_insert(0) += 1;
+        *by_entity.entry(entity_type_token(e.entity_type)).or_insert(0) += 1;
+        for p in &e.programs {
+            if !p.is_empty() {
+                *by_program.entry(p.clone()).or_insert(0) += 1;
+            }
+        }
+        for n in &e.nationalities {
+            if !n.is_empty() {
+                *by_nationality.entry(n.clone()).or_insert(0) += 1;
+            }
+        }
+        if !e.addresses.is_empty() {
+            with_addresses += 1;
+        }
+        if !e.aliases.is_empty() {
+            with_aliases += 1;
+        }
+    }
+
+    let by_source_json: Vec<_> = by_source
+        .iter()
+        .map(|(code, count)| {
+            let meta = source_meta::meta_for_code(code);
+            json!({
+                "code": code,
+                "count": count,
+                "long_name": meta.map(|m| m.long_name),
+                "agency_url": meta.map(|m| m.agency_url),
+            })
+        })
+        .collect();
+    let by_entity_json: Vec<_> = by_entity
+        .iter()
+        .map(|(k, v)| json!({"entity_type": k, "count": v}))
+        .collect();
+    // Top 25 programs / nationalities by frequency.
+    let mut programs_sorted: Vec<_> = by_program.into_iter().collect();
+    programs_sorted.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    programs_sorted.truncate(25);
+    let mut nationalities_sorted: Vec<_> = by_nationality.into_iter().collect();
+    nationalities_sorted.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    nationalities_sorted.truncate(25);
+
+    let (count, fetched_at, version) = match metadata {
+        Some(m) => (m.count, Some(m.fetched_at), Some(m.version)),
+        None => (0, None, None),
+    };
+
+    RouteResponse::json(
+        200,
+        json!({
+            "count": count,
+            "fetched_at": fetched_at,
+            "version": version,
+            "by_source": by_source_json,
+            "by_entity_type": by_entity_json,
+            "top_programs": programs_sorted.iter().map(|(name, count)| json!({"name": name, "count": count})).collect::<Vec<_>>(),
+            "top_nationalities": nationalities_sorted.iter().map(|(name, count)| json!({"name": name, "count": count})).collect::<Vec<_>>(),
+            "with_addresses": with_addresses,
+            "with_aliases": with_aliases,
+        }),
+    )
 }
 
 fn csl_sources(app: &AppState) -> RouteResponse {
@@ -438,6 +526,16 @@ fn search(
         Tlp::Red if result.exact_alias_match => "auto-block",
         Tlp::Red => "pending-block",
     };
+    // Snapshot the top-K hits with their entry-level metadata. This is
+    // both what we serialize to the response AND what we persist to
+    // audit so the review UI later can show reviewers exactly what the
+    // engine returned at search time.
+    let snapshots: Vec<HitSnapshot> = result
+        .hits
+        .iter()
+        .map(|h| build_hit_snapshot(app, h))
+        .collect();
+
     let event = SearchEvent {
         audit_id: audit_id.clone(),
         who: session.username.clone(),
@@ -447,37 +545,13 @@ fn search(
         top_hit_ids: top_ids.clone(),
         decision: decision.into(),
         source: source.to_string(),
+        top_hits: snapshots.iter().take(5).cloned().collect(),
     };
     if let Err(e) = app.storage.audit_log(&event) {
         return RouteResponse::err(500, format!("audit_log: {}", e));
     }
 
-    let hits_json = result
-        .hits
-        .iter()
-        .map(|h| {
-            // Look up the entry's source code → citation.
-            let citation = match app.storage.csl_get(&h.entry_id) {
-                Ok(Some(entry)) => match source_meta::meta_for_code(&entry.source_list) {
-                    Some(m) => json!({
-                        "source_code": m.code,
-                        "long_name": m.long_name,
-                        "agency_url": m.agency_url,
-                    }),
-                    None => json!({"source_code": entry.source_list}),
-                },
-                _ => json!(null),
-            };
-            json!({
-                "entry_id": h.entry_id,
-                "score": h.score,
-                "tlp": tlp_token(h.tlp),
-                "matched_fields": h.matched_fields,
-                "snippet": h.snippet,
-                "citation": citation,
-            })
-        })
-        .collect::<Vec<_>>();
+    let hits_json: Vec<_> = snapshots.iter().map(snapshot_to_json).collect();
 
     let mut body_obj = json!({
         "audit_id": audit_id,
@@ -538,6 +612,74 @@ fn tlp_token(t: Tlp) -> &'static str {
         Tlp::Yellow => "yellow",
         Tlp::Red => "red",
     }
+}
+
+fn entity_type_token(t: EntityType) -> &'static str {
+    match t {
+        EntityType::Individual => "individual",
+        EntityType::Entity => "entity",
+        EntityType::Vessel => "vessel",
+        EntityType::Aircraft => "aircraft",
+        EntityType::Unknown => "unknown",
+    }
+}
+
+/// Build the per-hit snapshot we surface to clients and persist into
+/// the audit row. Pulls the entry's source_list / entity_type /
+/// programs / nationalities so the review UI can render tags without
+/// a second round-trip per hit.
+fn build_hit_snapshot(app: &AppState, h: &ocelaudit_search::Hit) -> HitSnapshot {
+    let entry: Option<CslEntry> = app.storage.csl_get(&h.entry_id).ok().flatten();
+    let citation = entry.as_ref().and_then(|e| {
+        source_meta::meta_for_code(&e.source_list).map(|m| HitCitation {
+            source_code: m.code.into(),
+            long_name: m.long_name.into(),
+            agency_url: m.agency_url.into(),
+        })
+    });
+    let tags = match &entry {
+        Some(e) => HitTags {
+            source_list: e.source_list.clone(),
+            entity_type: entity_type_token(e.entity_type).into(),
+            programs: e.programs.clone(),
+            nationalities: e.nationalities.clone(),
+        },
+        None => HitTags::default(),
+    };
+    HitSnapshot {
+        entry_id: h.entry_id.clone(),
+        score: h.score,
+        tlp: tlp_token(h.tlp).into(),
+        matched_fields: h.matched_fields.clone(),
+        snippet: h.snippet.clone(),
+        citation,
+        tags,
+    }
+}
+
+fn snapshot_to_json(s: &HitSnapshot) -> serde_json::Value {
+    let citation = match &s.citation {
+        Some(c) => json!({
+            "source_code": c.source_code,
+            "long_name": c.long_name,
+            "agency_url": c.agency_url,
+        }),
+        None => json!(null),
+    };
+    json!({
+        "entry_id": s.entry_id,
+        "score": s.score,
+        "tlp": s.tlp,
+        "matched_fields": s.matched_fields,
+        "snippet": s.snippet,
+        "citation": citation,
+        "tags": {
+            "source_list": s.tags.source_list,
+            "entity_type": s.tags.entity_type,
+            "programs": s.tags.programs,
+            "nationalities": s.tags.nationalities,
+        },
+    })
 }
 
 fn autocomplete(app: &AppState, query: Option<&str>) -> RouteResponse {
@@ -634,6 +776,7 @@ fn audit_get(app: &AppState, id: &str) -> RouteResponse {
             "query": event.query,
             "tlp": event.tlp,
             "top_hit_ids": event.top_hit_ids,
+            "top_hits": event.top_hits.iter().map(snapshot_to_json).collect::<Vec<_>>(),
             "decision": current,
             "initial_decision": event.decision,
             "source": event.source,
@@ -797,6 +940,8 @@ fn review_queue(app: &AppState) -> RouteResponse {
                 "tlp": ev.tlp,
                 "decision": final_decision,
                 "top_hit_ids": ev.top_hit_ids,
+                "top_hits": ev.top_hits.iter().map(snapshot_to_json).collect::<Vec<_>>(),
+                "source": ev.source,
             }));
         }
     }

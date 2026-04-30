@@ -31,7 +31,15 @@ function AuditList() {
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
-  const [filter, setFilter] = useState<ColumnFilter>(EMPTY_FILTER);
+  // Seed the column filters from the URL so dashboard drill-downs land
+  // on a pre-filtered view (e.g. /audit?tlp=red from the RED card).
+  const [filter, setFilter] = useState<ColumnFilter>(() => ({
+    ...EMPTY_FILTER,
+    tlp: readQuery("tlp") ?? "",
+    decision: readQuery("decision") ?? "",
+    who: readQuery("who") ?? "",
+    source: readQuery("source") ?? "",
+  }));
   const limit = 50;
 
   useEffect(() => {

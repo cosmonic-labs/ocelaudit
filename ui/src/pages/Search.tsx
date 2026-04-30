@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { api, type Hit, type SearchResponse, type Tlp } from "../api";
+import { Tag } from "../components/Tag";
 import { navigate, readQuery } from "../router";
 
 export function SearchPage() {
@@ -219,9 +220,10 @@ function ResultBlock({ response }: { response: SearchResponse }) {
   );
 }
 
-function HitCard({ hit }: { hit: Hit }) {
+export function HitCard({ hit }: { hit: Hit }) {
   const t = tlpClasses(hit.tlp);
   const cite = hit.citation;
+  const tags = hit.tags;
   return (
     <li class={`rounded-lg border ${t.border} bg-white p-4 dark:bg-neutral-900`}>
       <div class="flex items-start justify-between gap-4">
@@ -236,21 +238,42 @@ function HitCard({ hit }: { hit: Hit }) {
           {hit.matched_fields.length > 0 && (
             <p class="mt-1 text-xs text-neutral-500">matched: {hit.matched_fields.join(", ")}</p>
           )}
+          {tags && (tags.source_list || tags.entity_type || tags.programs.length > 0 || tags.nationalities.length > 0) && (
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              {tags.source_list && (
+                <Tag
+                  kind="source"
+                  source_code={tags.source_list}
+                  href={cite?.agency_url}
+                  title={cite?.long_name ?? tags.source_list}
+                >
+                  {tags.source_list}
+                </Tag>
+              )}
+              {tags.entity_type && tags.entity_type !== "unknown" && (
+                <Tag kind="entity">{tags.entity_type}</Tag>
+              )}
+              {tags.programs.slice(0, 4).map((p) => (
+                <Tag kind="program">{p}</Tag>
+              ))}
+              {tags.programs.length > 4 && (
+                <Tag kind="neutral">+{tags.programs.length - 4}</Tag>
+              )}
+              {tags.nationalities.slice(0, 4).map((n) => (
+                <Tag kind="nationality">{n}</Tag>
+              ))}
+            </div>
+          )}
         </div>
-        {cite && cite.source_code && (
-          <div class="shrink-0 text-right">
-            <div class="rounded bg-neutral-100 px-2 py-1 text-xs font-mono dark:bg-neutral-800">{cite.source_code}</div>
-            {cite.agency_url && (
-              <a
-                href={cite.agency_url}
-                target="_blank"
-                rel="noreferrer noopener"
-                class="mt-1 block text-xs text-ocelot-accent hover:underline"
-              >
-                agency ↗
-              </a>
-            )}
-          </div>
+        {cite?.agency_url && (
+          <a
+            href={cite.agency_url}
+            target="_blank"
+            rel="noreferrer noopener"
+            class="shrink-0 text-xs text-ocelot-accent hover:underline"
+          >
+            agency ↗
+          </a>
         )}
       </div>
     </li>

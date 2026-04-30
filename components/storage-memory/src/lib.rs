@@ -297,6 +297,7 @@ mod tests {
                 top_hit_ids: vec![],
                 decision: "auto-green".into(),
                 source: "api".into(),
+                top_hits: vec![],
             })
             .unwrap();
         }

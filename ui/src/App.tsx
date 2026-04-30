@@ -6,6 +6,7 @@ import { SearchPage } from "./pages/Search";
 import { AuditPage } from "./pages/Audit";
 import { ReviewPage } from "./pages/Review";
 import { AdminPage } from "./pages/Admin";
+import { CslStatusPage } from "./pages/CslStatus";
 import { navigate, useRoute } from "./router";
 
 export function App() {
@@ -92,6 +93,7 @@ function renderPage(path: string, me: Me) {
   if (path.startsWith("/audit")) return <AuditPage />;
   if (path.startsWith("/review")) return <ReviewPage />;
   if (path.startsWith("/admin")) return <AdminPage me={me} />;
+  if (path.startsWith("/csl/status") || path.startsWith("/csl")) return <CslStatusPage />;
   return <Dashboard me={me} />;
 }
 

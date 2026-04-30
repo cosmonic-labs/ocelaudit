@@ -21,6 +21,13 @@ export interface MetricsBody {
   queue_depth: number;
 }
 
+export interface HitTags {
+  source_list: string;
+  entity_type: string;
+  programs: string[];
+  nationalities: string[];
+}
+
 export interface Hit {
   entry_id: string;
   score: number;
@@ -28,6 +35,7 @@ export interface Hit {
   matched_fields: string[];
   snippet: string;
   citation: { source_code?: string; long_name?: string; agency_url?: string } | null;
+  tags?: HitTags;
 }
 
 export interface SearchResponse {
@@ -82,6 +90,7 @@ export interface AuditEvent {
   initial_decision?: string;
   source?: string;
   top_hit_ids: string[];
+  top_hits?: Hit[];
   history?: WorkflowHistoryEntry[];
 }
 
@@ -102,6 +111,18 @@ export interface AuditList {
 export interface ReviewQueue {
   count: number;
   items: AuditEvent[];
+}
+
+export interface CslStats {
+  count: number;
+  fetched_at: number | null;
+  version: string | null;
+  by_source: { code: string; count: number; long_name: string | null; agency_url: string | null }[];
+  by_entity_type: { entity_type: string; count: number }[];
+  top_programs: { name: string; count: number }[];
+  top_nationalities: { name: string; count: number }[];
+  with_addresses: number;
+  with_aliases: number;
 }
 
 export interface Branding {
@@ -133,6 +154,7 @@ export const api = {
       "GET",
       "/api/v1/csl/sources",
     ),
+  cslStats: () => call<CslStats>("GET", "/api/v1/csl/stats"),
   auditList: (limit = 50, offset = 0) =>
     call<AuditList>("GET", `/api/v1/audit?limit=${limit}&offset=${offset}`),
   auditGet: (id: string) => call<AuditEvent>("GET", `/api/v1/audit/${encodeURIComponent(id)}`),

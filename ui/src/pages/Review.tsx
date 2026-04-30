@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, type AuditEvent } from "../api";
+import { api, type AuditEvent, type Hit } from "../api";
+import { Tag } from "../components/Tag";
 
 interface Toast {
   audit_id: string;
@@ -109,14 +110,22 @@ export function ReviewPage() {
                 </button>
               </div>
               {activeId === it.audit_id && (
-                <div class="mt-4 space-y-3 border-t border-neutral-200 pt-4 dark:border-neutral-800">
-                  <textarea
-                    placeholder="Reason / note (required)"
-                    value={note}
-                    onInput={(e) => setNote((e.currentTarget as HTMLTextAreaElement).value)}
-                    rows={3}
-                    class="w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
-                  />
+                <div class="mt-4 space-y-4 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+                  {/* Original hits the engine returned at search time. */}
+                  <CandidateMatches hits={it.top_hits ?? []} />
+
+                  <div>
+                    <label class="mb-1 block text-xs uppercase tracking-wide text-neutral-500">
+                      Reviewer note (required)
+                    </label>
+                    <textarea
+                      placeholder="Why are you clearing or blocking this?"
+                      value={note}
+                      onInput={(e) => setNote((e.currentTarget as HTMLTextAreaElement).value)}
+                      rows={3}
+                      class="w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                    />
+                  </div>
                   <div class="flex items-center gap-2">
                     <button
                       type="button"
@@ -142,6 +151,71 @@ export function ReviewPage() {
         </ul>
       )}
     </div>
+  );
+}
+
+function CandidateMatches({ hits }: { hits: Hit[] }) {
+  if (hits.length === 0) {
+    return (
+      <p class="text-xs italic text-neutral-500">
+        No candidate hits stored for this event (older audit row, or empty result set).
+      </p>
+    );
+  }
+  return (
+    <section>
+      <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Candidate matches ({hits.length})
+      </h3>
+      <ol class="space-y-2">
+        {hits.map((h) => (
+          <li
+            key={h.entry_id}
+            class="rounded border border-neutral-200 bg-neutral-50 p-3 text-sm dark:border-neutral-800 dark:bg-neutral-800/40"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <TlpBadge tlp={h.tlp} />
+                  <span class="text-xs text-neutral-500">score {h.score.toFixed(3)}</span>
+                  <span class="truncate text-xs text-neutral-500">id {h.entry_id}</span>
+                </div>
+                <p class="mt-1 font-display text-base leading-tight">{h.snippet}</p>
+                {h.matched_fields.length > 0 && (
+                  <p class="mt-1 text-xs text-neutral-500">matched: {h.matched_fields.join(", ")}</p>
+                )}
+                {h.tags && (
+                  <div class="mt-2 flex flex-wrap gap-1.5">
+                    {h.tags.source_list && (
+                      <Tag
+                        kind="source"
+                        source_code={h.tags.source_list}
+                        href={h.citation?.agency_url}
+                        title={h.citation?.long_name ?? h.tags.source_list}
+                      >
+                        {h.tags.source_list}
+                      </Tag>
+                    )}
+                    {h.tags.entity_type && h.tags.entity_type !== "unknown" && (
+                      <Tag kind="entity">{h.tags.entity_type}</Tag>
+                    )}
+                    {h.tags.programs.slice(0, 4).map((p) => (
+                      <Tag kind="program">{p}</Tag>
+                    ))}
+                    {h.tags.programs.length > 4 && (
+                      <Tag kind="neutral">+{h.tags.programs.length - 4}</Tag>
+                    )}
+                    {h.tags.nationalities.slice(0, 4).map((n) => (
+                      <Tag kind="nationality">{n}</Tag>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

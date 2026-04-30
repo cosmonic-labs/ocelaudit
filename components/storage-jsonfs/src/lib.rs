@@ -145,6 +145,45 @@ pub struct SearchEvent {
     /// deserialize as "api" via the default.
     #[serde(default = "default_event_source")]
     pub source: String,
+    /// Snapshot of the top-K hits at search time. Stored so the review
+    /// queue can show reviewers exactly what the engine returned, even
+    /// after the index has been refreshed (M13). Older events without
+    /// this field deserialize as `[]`.
+    #[serde(default)]
+    pub top_hits: Vec<HitSnapshot>,
+}
+
+/// Persisted-on-disk shape of a single hit at search time. Mirrors
+/// `ocelaudit_search::Hit` but adds the entry-level metadata
+/// (source_list, entity_type, programs, nationalities) needed by the
+/// review UI without re-fetching the entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HitSnapshot {
+    pub entry_id: String,
+    pub score: f32,
+    pub tlp: String,
+    pub matched_fields: Vec<String>,
+    pub snippet: String,
+    /// Per PLAN.md §11 source-meta — short code + agency URL.
+    pub citation: Option<HitCitation>,
+    pub tags: HitTags,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HitCitation {
+    pub source_code: String,
+    pub long_name: String,
+    pub agency_url: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HitTags {
+    pub source_list: String,
+    pub entity_type: String,
+    #[serde(default)]
+    pub programs: Vec<String>,
+    #[serde(default)]
+    pub nationalities: Vec<String>,
 }
 
 fn default_event_source() -> String {
