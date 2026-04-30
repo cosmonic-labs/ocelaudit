@@ -3,6 +3,9 @@ import { api, ApiError, type Me } from "./api";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { SearchPage } from "./pages/Search";
+import { AuditPage } from "./pages/Audit";
+import { ReviewPage } from "./pages/Review";
+import { AdminPage } from "./pages/Admin";
 import { navigate, useRoute } from "./router";
 
 export function App() {
@@ -47,13 +50,32 @@ export function App() {
         }
       }}
     >
-      {path.startsWith("/search") ? (
-        <SearchPage />
-      ) : (
-        <Dashboard me={me} />
-      )}
+      {renderPage(path, me)}
     </Shell>
   );
+}
+
+function NavLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      class="text-neutral-600 hover:text-ocelot-accent dark:text-neutral-300"
+      onClick={(e) => {
+        e.preventDefault();
+        navigate(href);
+      }}
+    >
+      {label}
+    </a>
+  );
+}
+
+function renderPage(path: string, me: Me) {
+  if (path.startsWith("/search")) return <SearchPage />;
+  if (path.startsWith("/audit")) return <AuditPage />;
+  if (path.startsWith("/review")) return <ReviewPage />;
+  if (path.startsWith("/admin")) return <AdminPage me={me} />;
+  return <Dashboard me={me} />;
 }
 
 interface ShellProps {
@@ -79,16 +101,10 @@ function Shell({ me, onLogout, children }: ShellProps) {
             <span class="font-display text-lg">OcelAudit</span>
           </a>
           <nav class="flex items-center gap-4 text-sm">
-            <a
-              href="/search"
-              class="text-neutral-600 hover:text-ocelot-accent dark:text-neutral-300"
-              onClick={(e) => {
-                e.preventDefault();
-                navigate("/search");
-              }}
-            >
-              Search
-            </a>
+            <NavLink href="/search" label="Search" />
+            <NavLink href="/audit" label="Audit" />
+            <NavLink href="/review" label="Review" />
+            {me.role === "admin" && <NavLink href="/admin" label="Admin" />}
             <span class="text-neutral-500">
               <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">{me.username}</code>{" "}
               · {me.role}

@@ -303,7 +303,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 - M5 ✅ — `/screen/{ofac,pep}` with source-list scoping + scope-note in body; per-hit `citation` (source_meta agency_url) on `/search` + `/screen` responses; `/review/{audit_id}/decide` writes `WorkflowEntry` so `/audit/{id}` reflects the latest decision and full history. Total: 72 API assertions.
 - M6 ✅ — Vite + Preact + TS SPA under `ui/` (10 KB CSS + 20 KB JS). Login + Dashboard pages talk to the real backend via the HttpOnly session cookie. Gateway serves `/`, `/assets/*`, `/brand/*` from `/data/static/` with strict CSP and SPA fallback for client-side routes. Total: 83 API assertions.
 - M7 ✅ — Search page (form + filters + TLP-banded result cards + agency citations + 150ms debounced autocomplete), dashboard search bar; tiny URL-driven router (no tanstack/wouter dep). Bundle stays under 32 KB JS gzipped to ~10 KB.
-- M8 — Audit, review, admin pages.
+- M8 ✅ — Audit (paginated list + click-through to detail with full decision history), Review (queue with cleared/blocked decision UI + required note), Admin (admin-only: "Update CSL now" button + threshold display). 5 pages now. Bundle: 40 KB JS, 14 KB CSS, gzipped 16 KB total.
 - M9 — Brand swap milestone.
 - M10 — Demo polish (`make demo`).
 - M11 — Alternative storage backends (sqlite + turso).

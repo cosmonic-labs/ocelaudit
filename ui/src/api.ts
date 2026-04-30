@@ -67,6 +67,37 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return (await r.json()) as T;
 }
 
+export interface AuditEvent {
+  audit_id: string;
+  who: string;
+  when: number;
+  query: string;
+  tlp: string;
+  decision: string;
+  initial_decision?: string;
+  top_hit_ids: string[];
+  history?: WorkflowHistoryEntry[];
+}
+
+export interface WorkflowHistoryEntry {
+  audit_id: string;
+  decision: string;
+  decided_by: string;
+  decided_at: number;
+  note: string | null;
+}
+
+export interface AuditList {
+  limit: number;
+  offset: number;
+  events: AuditEvent[];
+}
+
+export interface ReviewQueue {
+  count: number;
+  items: AuditEvent[];
+}
+
 export const api = {
   login: (username: string, password: string) =>
     call<{ username: string; role: Role }>("POST", "/api/v1/auth/login", { username, password }),
@@ -87,6 +118,21 @@ export const api = {
     call<{ known: { code: string; long_name: string; agency_url: string }[]; counts: { name: string; count: number }[] }>(
       "GET",
       "/api/v1/csl/sources",
+    ),
+  auditList: (limit = 50, offset = 0) =>
+    call<AuditList>("GET", `/api/v1/audit?limit=${limit}&offset=${offset}`),
+  auditGet: (id: string) => call<AuditEvent>("GET", `/api/v1/audit/${encodeURIComponent(id)}`),
+  reviewQueue: () => call<ReviewQueue>("GET", "/api/v1/review"),
+  reviewDecide: (auditId: string, decision: "cleared" | "blocked", note?: string) =>
+    call<{ audit_id: string; decision: string; decided_by: string; decided_at: number }>(
+      "POST",
+      `/api/v1/review/${encodeURIComponent(auditId)}/decide`,
+      { decision, note: note ?? null },
+    ),
+  cslRefresh: () =>
+    call<{ ingested: number; fetched_at: number; version: string; source_path: string }>(
+      "POST",
+      "/api/v1/csl/refresh",
     ),
 };
 
