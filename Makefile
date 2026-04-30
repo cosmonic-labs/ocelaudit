@@ -143,8 +143,8 @@ clean: stop-dev ## Remove build artifacts and caches
 	rm -rf .cache
 	@for c in $(COMPONENTS); do rm -rf components/$$c/build; done
 
-stats: ## Per-component wasm size table (TODO M10)
-	@echo "TODO (M10): per-component wasm size table; populated by make stats"
+stats: build ## Print the per-component wasm size table
+	@bash tools/stats.sh
 
-demo: ## Cold-start demo bootstrap (TODO M10)
-	@echo "TODO (M10): cold-clone -> working login in <5min"
+demo: build ## Cold-start demo bootstrap: build, boot wash dev, seed CSL, print URL + creds.
+	@bash tools/demo.sh

@@ -30,17 +30,16 @@ Who this is for:
 
 ## 30-second demo
 
-> **TODO (M10):** the `make demo` target lands in M10. Until then, `make dev` boots a single component end-to-end.
-
-Today, after installing `wash` 2.0.4 and the standalone `wkg`:
-
 ```sh
-cargo install wkg
-rustup target add wasm32-wasip2
-make build         # wkg fetch + wash build per component
-make dev           # boots `wash dev` for components/api-gateway
-curl http://127.0.0.1:8000/   # -> "ocelaudit booting"
+make demo
 ```
+
+Banner shows the URL (`http://127.0.0.1:8000/`) and two random
+passwords (admin + compliance). The browser opens automatically.
+See [`docs/demo-script.md`](docs/demo-script.md) for the 90-second
+walkthrough that hits every TLP outcome and the full review flow.
+
+Cold-start budget: < 5 minutes from clean clone (per PLAN.md M10).
 
 ---
 
@@ -332,7 +331,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 - M7 ✅ — Search page (form + filters + TLP-banded result cards + agency citations + 150ms debounced autocomplete), dashboard search bar; tiny URL-driven router (no tanstack/wouter dep). Bundle stays under 32 KB JS gzipped to ~10 KB.
 - M8 ✅ — Audit (paginated list + click-through to detail with full decision history), Review (queue with cleared/blocked decision UI + required note), Admin (admin-only: "Update CSL now" button + threshold display). 5 pages now. Bundle: 40 KB JS, 14 KB CSS, gzipped 16 KB total.
 - M9 ✅ — `/api/v1/branding` endpoint reads `/data/static/ocelaudit.config.json` (logo, wordmark, video, colors); missing keys fall back to defaults. SPA loads it on boot, applies CSS custom properties, plays the optional login video. 10 new API assertions; brand swap recipe in README below.
-- M10 — Demo polish (`make demo`).
+- M10 ✅ — `make demo` (cold-start bootstrap, prints URL + creds, opens browser); `make stats` (per-component wasm size table from real artefacts); `docs/demo-script.md` (90-second walkthrough hitting every TLP outcome).
 - M11 — Alternative storage backends (sqlite + turso).
 
 Known issues (will not be quietly removed once acknowledged):
