@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+  --tlp-green: #16a34a;
+  --tlp-yellow: #ca8a04;
+  --tlp-red: #dc2626;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: theme("colors.ocelot.paper");
+  color: theme("colors.ocelot.ink");
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: theme("colors.ocelot.ink");
+    color: theme("colors.ocelot.paper");
+  }
+}

@@ -301,7 +301,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 - M3 ✅ — `csl-ingest` parser + 9-source-list fixture; `/api/v1/csl/{metadata,refresh,sources,entries/{id}}`. Refresh reads `/data/csl/seed.json` from the volume mount (real HTTP fetch is in caveats below).
 - M4 ✅ — Cookie-session auth (HMAC-SHA256, key persisted to `/data/session.key`), `/api/v1/{auth/{login,logout},me,search,search/autocomplete,audit,audit/{id},metrics}`. UUIDv7 audit IDs. 6 unit tests + 53 API assertions across the M0+M2+M3+M4 suite.
 - M5 ✅ — `/screen/{ofac,pep}` with source-list scoping + scope-note in body; per-hit `citation` (source_meta agency_url) on `/search` + `/screen` responses; `/review/{audit_id}/decide` writes `WorkflowEntry` so `/audit/{id}` reflects the latest decision and full history. Total: 72 API assertions.
-- M6 — Static-assets component + SPA shell.
+- M6 ✅ — Vite + Preact + TS SPA under `ui/` (10 KB CSS + 20 KB JS). Login + Dashboard pages talk to the real backend via the HttpOnly session cookie. Gateway serves `/`, `/assets/*`, `/brand/*` from `/data/static/` with strict CSP and SPA fallback for client-side routes. Total: 83 API assertions.
 - M7 — Search & dashboard pages.
 - M8 — Audit, review, admin pages.
 - M9 — Brand swap milestone.

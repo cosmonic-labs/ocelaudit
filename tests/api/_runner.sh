@@ -21,6 +21,14 @@ mkdir -p .cache/ocelaudit-data/csl
 # has something to read (the gateway expects /data/csl/seed.json).
 cp tests/fixtures/csl/sample.json .cache/ocelaudit-data/csl/seed.json
 
+# Pre-stage the SPA bundle so the gateway can serve / and /assets/* at
+# the volume's /data/static/ path (M6). If the dist isn't built yet,
+# this is a no-op — m6-spa.sh will report it as a setup gap.
+mkdir -p .cache/ocelaudit-data/static
+if [ -d ui/dist ]; then
+  cp -R ui/dist/* .cache/ocelaudit-data/static/
+fi
+
 cleanup() {
   local code=$?
   if [ -f "$PID_FILE" ]; then

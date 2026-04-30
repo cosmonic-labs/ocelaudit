@@ -22,13 +22,23 @@ help:
 
 # ----- build -----------------------------------------------------------
 
-build: ## Build every component to wasm (wkg fetch + wash build)
+build: build-ui ## Build every component (SPA + wasm via wkg fetch + wash build)
 	@for c in $(COMPONENTS); do \
 	  echo ">> wkg wit fetch -t wit components/$$c"; \
 	  (cd components/$$c && rm -f wkg.lock && wkg wit fetch -t wit); \
 	  echo ">> wash build --skip-fetch components/$$c"; \
 	  (cd components/$$c && wash build --skip-fetch); \
 	done
+
+build-ui: ## Build the SPA bundle (no-op if pnpm/ui is missing)
+	@if [ -f ui/package.json ] && command -v pnpm >/dev/null 2>&1; then \
+	  echo ">> pnpm --dir ui install --frozen-lockfile"; \
+	  (cd ui && pnpm install --frozen-lockfile --silent); \
+	  echo ">> pnpm --dir ui build"; \
+	  (cd ui && pnpm build --silent); \
+	else \
+	  echo "  (skipping SPA build — pnpm or ui/ missing)"; \
+	fi
 
 # ----- test ------------------------------------------------------------
 

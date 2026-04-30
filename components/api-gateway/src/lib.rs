@@ -13,6 +13,7 @@ use wasi::http::types::{
 mod auth;
 mod routes;
 mod state;
+mod static_assets;
 
 use state::AppState;
 
@@ -97,8 +98,9 @@ fn read_body(req: IncomingRequest) -> Option<Vec<u8>> {
 pub(crate) struct RouteResponse {
     pub status: u16,
     pub content_type: &'static str,
-    pub body: String,
+    pub body: Vec<u8>,
     pub set_cookie: Option<String>,
+    pub extra_headers: Vec<(&'static str, String)>,
 }
 
 impl RouteResponse {
@@ -106,16 +108,27 @@ impl RouteResponse {
         Self {
             status,
             content_type: "application/json",
-            body: value.to_string(),
+            body: value.to_string().into_bytes(),
             set_cookie: None,
+            extra_headers: Vec::new(),
         }
     }
     pub fn plain(status: u16, body: impl Into<String>) -> Self {
         Self {
             status,
             content_type: "text/plain",
-            body: body.into(),
+            body: body.into().into_bytes(),
             set_cookie: None,
+            extra_headers: Vec::new(),
+        }
+    }
+    pub fn bytes(status: u16, content_type: &'static str, body: Vec<u8>) -> Self {
+        Self {
+            status,
+            content_type,
+            body,
+            set_cookie: None,
+            extra_headers: Vec::new(),
         }
     }
     pub fn err(status: u16, message: impl Into<String>) -> Self {
@@ -123,6 +136,10 @@ impl RouteResponse {
     }
     pub fn with_cookie(mut self, set_cookie: String) -> Self {
         self.set_cookie = Some(set_cookie);
+        self
+    }
+    pub fn with_header(mut self, name: &'static str, value: String) -> Self {
+        self.extra_headers.push((name, value));
         self
     }
 }
@@ -136,12 +153,15 @@ fn write_response(out: ResponseOutparam, r: RouteResponse) {
     if let Some(cookie) = &r.set_cookie {
         let _ = headers.append(&"set-cookie".to_string(), &cookie.as_bytes().to_vec());
     }
+    for (name, value) in &r.extra_headers {
+        let _ = headers.append(&name.to_string(), &value.as_bytes().to_vec());
+    }
     let resp = OutgoingResponse::new(headers);
     let _ = resp.set_status_code(r.status);
     let outgoing_body = resp.body().unwrap();
     ResponseOutparam::set(out, Ok(resp));
     let stream = outgoing_body.write().unwrap();
-    let _ = stream.blocking_write_and_flush(r.body.as_bytes());
+    let _ = stream.blocking_write_and_flush(&r.body);
     drop(stream);
     let _ = OutgoingBody::finish(outgoing_body, None);
 }

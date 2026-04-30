@@ -24,10 +24,11 @@ components/*/wkg.lock
 *.swp
 *.swo
 
-# Node / Vite (lands in M6)
+# Node / Vite
 node_modules/
 ui/dist/
 ui/.vite/
+.pnpm-store/
 tests/ui/.traces/
 tests/ui/test-results/
 tests/ui/playwright-report/

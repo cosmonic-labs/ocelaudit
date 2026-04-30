@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::auth::{clear_cookie, extract_session_cookie, set_cookie, Session};
 use crate::state::AppState;
+use crate::static_assets;
 use crate::wasi::clocks;
 use crate::wasi::http::types::Method;
 use crate::RouteResponse;
@@ -42,13 +43,26 @@ pub(crate) fn dispatch(in_: DispatchInput<'_>) -> RouteResponse {
 
     match (in_.method, in_.path) {
         // -- public --
-        (Method::Get, "/") => RouteResponse::plain(200, "ocelaudit booting"),
         (Method::Get, "/healthz") => RouteResponse::json(200, json!({"ok": true})),
         (Method::Post, "/api/v1/auth/login") => login(app, in_.body),
         (Method::Post, "/api/v1/auth/logout") => logout(),
 
         // -- always-public CSL surface (helps the unauth login page hint) --
         (Method::Get, "/api/v1/csl/sources") => csl_sources(app),
+
+        // -- static SPA assets, served from /data/static/ --
+        (Method::Get, "/") => static_assets::serve("/")
+            .unwrap_or_else(|| RouteResponse::plain(200, "ocelaudit booting")),
+        (Method::Get, p) if !p.starts_with("/api/") && !p.starts_with("/healthz") => {
+            // Try the literal path; fall back to SPA index.html so the
+            // client-side router can take over for routes like
+            // /dashboard, /search, etc.
+            static_assets::serve(p)
+                .or_else(static_assets::spa_fallback)
+                .unwrap_or_else(|| {
+                    RouteResponse::json(404, json!({"error": "not found", "path": p}))
+                })
+        }
 
         // -- everything else needs auth --
         _ => match session {
