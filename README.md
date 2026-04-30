@@ -112,7 +112,7 @@ Trust-boundary diagram lands in M6 when the SPA appears.
 | Codegen      | wit-bindgen 0.54  | Matches upstream wasmCloud fixtures Cargo.lock pin.      | older 0.42-0.50 series.            |
 | WIT fetch    | wkg 0.15.0        | wash 2.0.4's bundled wkg mis-decodes text-WIT overrides. | wash's bundled wkg (broken).       |
 | Search       | Hand-rolled (BM25 + Jaro-Winkler + trigrams) | tantivy fails to compile to wasm32-wasip2 (zstd-sys C dep can't target the triple). Fallback gets 100% top-10 recall on the 10k-record fixture at p95 0.60 ms. See `docs/m1-search-engine-decision.md`. | tantivy default, tantivy single-thread (both blocked on C toolchain). |
-| Storage      | TBD M2            | jsonfs first; sqlite + turso added in M11.               | KV via host bindings.              |
+| Storage      | JSON-on-disk (M2 default) | Simplest substrate that works. SQLite + Turso land in M11 alongside the same surface; one-line `wadm` swap. | rusqlite-bundled (wasi-sdk linker dance), KV via host bindings. |
 | UI           | TBD M6            | Vite + Preact + TS planned.                              | React, SolidJS.                    |
 | Passwords    | Argon2id          | Standard.                                                | bcrypt, scrypt.                    |
 | Supply chain | cargo-auditable + CycloneDX + SLSA attestations | wasmCloud-recommended chain. | unsigned, sigstore-only.           |
@@ -126,8 +126,9 @@ Trust-boundary diagram lands in M6 when the SPA appears.
 
 | Component   | Role                          | Wasm size           | Image ref                                          |
 |-------------|-------------------------------|---------------------|----------------------------------------------------|
-| api-gateway | HTTP entry, routes, auth, TLP | ~83 KB (release, M0) | `ghcr.io/<owner>/ocelaudit-api-gateway:<tag>`     |
+| api-gateway | HTTP entry, routes, auth, TLP | 236 KB (release, M2; storage compiled in) | `ghcr.io/<owner>/ocelaudit-api-gateway:<tag>` |
 | search      | BM25 + JW search engine       | host-target only at M1; .wasm landed when wired in M3+ | `ghcr.io/<owner>/ocelaudit-search:<tag>` |
+| storage-jsonfs | JSON-on-disk persistence   | compiled into api-gateway in M2 (no separate .wasm yet); separate component lands when WIT plumbing splits in M3+ | `ghcr.io/<owner>/ocelaudit-storage-jsonfs:<tag>` |
 
 (Other rows land with their components.)
 
@@ -227,7 +228,7 @@ Common gotchas:
 | Var                    | Default                    | Type         | Component       | Introduced | Purpose                                      |
 |------------------------|----------------------------|--------------|-----------------|------------|----------------------------------------------|
 | `DEV_HOST_ADDR`        | `127.0.0.1:8000`           | `host:port`  | (Makefile only) | M0         | Where `wash dev` listens for tests.          |
-| `STORAGE_BACKEND`      | _required_                 | `jsonfs:<path>` / `sqlite:<file>` / `turso:<file>` | storage-* | M2 | Selects storage backend.       |
+| `STORAGE_BACKEND`      | `jsonfs:/data` (M2)        | `jsonfs:<path>` / `sqlite:<file>` (M11) / `turso:<file>` (M11) | api-gateway | M2 | Selects storage backend. M2: jsonfs only; sqlite/turso fail-fast with a pointer to M11. |
 | `SESSION_SIGNING_KEY`  | _generated on first start_ | hex          | api-gateway     | M4         | Signs session cookies.                       |
 | `TLP_RED_THRESHOLD`    | `0.95`                     | float        | search          | M1         | Hits ≥ this score are RED.                   |
 | `TLP_YELLOW_THRESHOLD` | `0.75`                     | float        | search          | M1         | Hits ≥ this and < red are YELLOW.            |
@@ -293,7 +294,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 
 - M0 ✅ — Bootstrap + CI; api-gateway hello-world; release.yml wired.
 - M1 ✅ — Hand-rolled search engine (tantivy ruled out on wasi-toolchain grounds); 10k-record fixture suite with 100% top-1 / top-10 / TLP and p95 0.60 ms; decision frozen at `docs/m1-search-engine-decision.md`.
-- M2 — Storage component (`storage-jsonfs`).
+- M2 ✅ — `storage-jsonfs` over `wasi:filesystem`: csl-records, audit, users (Argon2id-seeded), workflow. 17 unit tests + 8 API assertions; api-gateway exposes `/healthz`, `/api/v1/me`, `/api/v1/audit/_test`.
 - M3 — CSL ingest + scheduled refresh.
 - M4 — API gateway routes (no UI yet).
 - M5 — Hit workflow polish + screening conveniences.

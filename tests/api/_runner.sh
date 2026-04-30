@@ -12,6 +12,9 @@ PID_FILE=".cache/wash-dev.pid"
 LOG_FILE=".cache/wash-dev.log"
 
 mkdir -p .cache
+# wash dev's volume mount requires the host_path to exist before launch.
+# api-gateway's .wash/config.yaml mounts ../../.cache/ocelaudit-data → /data.
+mkdir -p .cache/ocelaudit-data
 
 cleanup() {
   local code=$?

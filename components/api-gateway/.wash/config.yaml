@@ -1,12 +1,11 @@
 version: 2.0.4
 
 build:
-  # cargo auditable embeds dependency metadata into the .wasm so
-  # `cargo audit bin` can analyse it. cargo-auditable is installed by
-  # the setup-wash-cargo-auditable action in CI; locally:
-  #   cargo install cargo-auditable cargo-audit
   command: cargo auditable build --target wasm32-wasip2 --release -p ocelaudit-api-gateway
   component_path: ../../target/wasm32-wasip2/release/ocelaudit_api_gateway.wasm
 
 dev:
   address: 127.0.0.1:8000
+  volumes:
+    - host_path: ../../.cache/ocelaudit-data
+      guest_path: /data

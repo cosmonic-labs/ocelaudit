@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "components/api-gateway",
     "components/search",
+    "components/storage-jsonfs",
 ]
 
 [workspace.package]
