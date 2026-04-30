@@ -161,7 +161,17 @@ fn write_response(out: ResponseOutparam, r: RouteResponse) {
     let outgoing_body = resp.body().unwrap();
     ResponseOutparam::set(out, Ok(resp));
     let stream = outgoing_body.write().unwrap();
-    let _ = stream.blocking_write_and_flush(&r.body);
+    // wasi:io 0.2.x's `blocking_write_and_flush` is documented as
+    // accepting "up to 4096 bytes" per call. Bigger payloads (our
+    // 40 KB SPA bundle, the 14 KB CSS, the 5 MB CSL JSON, …) need
+    // chunking — silently dropping a too-large write produced empty
+    // 200 responses (#blank-spa-bug).
+    const MAX_CHUNK: usize = 4096;
+    for chunk in r.body.chunks(MAX_CHUNK) {
+        if stream.blocking_write_and_flush(chunk).is_err() {
+            break;
+        }
+    }
     drop(stream);
     let _ = OutgoingBody::finish(outgoing_body, None);
 }

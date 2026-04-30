@@ -50,10 +50,25 @@ else
 fi
 
 # Find the actual asset filenames in the dist (they have content hashes).
-js_path=$(ls "$(dirname "$0")/../../ui/dist/assets/"*.js | head -1 | sed -e 's|.*/dist||')
-css_path=$(ls "$(dirname "$0")/../../ui/dist/assets/"*.css | head -1 | sed -e 's|.*/dist||')
+dist="$(dirname "$0")/../../ui/dist"
+js_path=$(ls "$dist/assets/"*.js | head -1 | sed -e 's|.*/dist||')
+css_path=$(ls "$dist/assets/"*.css | head -1 | sed -e 's|.*/dist||')
 status_and_ct "$BASE_URL$js_path" 200 "application/javascript"
 status_and_ct "$BASE_URL$css_path" 200 "text/css"
+
+# Body bytes match the built dist. wasi:io's blocking_write_and_flush
+# only writes "up to 4096 bytes" per call — a chunking bug here ships
+# correct headers but a 0-byte body, which renders as a blank page.
+# Catching that regression by SHA, not just by status.
+expect_sha_matches() {
+  local url="$1" file="$2"
+  local svr; svr=$(curl -fsS "$url" | shasum | awk '{print $1}')
+  local lcl; lcl=$(shasum "$file" | awk '{print $1}')
+  if [ "$svr" = "$lcl" ]; then _pass_msg "$url body sha matches dist file"
+  else _fail_msg "$url body" "sha $svr (server) vs $lcl (dist)"; fi
+}
+expect_sha_matches "$BASE_URL$js_path" "$dist$js_path"
+expect_sha_matches "$BASE_URL$css_path" "$dist$css_path"
 
 # Brand SVG.
 status_and_ct "$BASE_URL/brand/ocelot.svg" 200 "image/svg+xml"
