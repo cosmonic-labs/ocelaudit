@@ -1,0 +1,23 @@
+[package]
+name = "ocelaudit-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "OcelAudit search engine — BM25 + Jaro-Winkler hand-rolled fallback (M1 decision)."
+
+[lib]
+name = "ocelaudit_search"
+# Library only for now — the WIT export lives in M3+/M4 when search becomes
+# its own wasm component invoked from api-gateway. cargo test runs on the
+# host target (essential for the M1 fixture-query suite).
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+strsim = "0.11"
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+# Fixture loading + perf timing live alongside the integration test.

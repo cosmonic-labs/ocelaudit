@@ -1,0 +1,77 @@
+[
+  {"q": "Acme Holdings Pyongyang", "expected_id": "known-0", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Acme Holdings", "expected_id": "known-0", "expected_tlp": "red", "kind": "exact-alias"},
+  {"q": "Acme P.Y.", "expected_id": "known-0", "expected_tlp": "red", "kind": "exact-alias-with-punct"},
+  {"q": "ACME HOLDINGS PYONGYANG", "expected_id": "known-0", "expected_tlp": "red", "kind": "exact-name-uppercase"},
+
+  {"q": "Volga Shipping LLC", "expected_id": "known-1", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Volga Shippping LLC", "expected_id": "known-1", "expected_tlp": "red", "kind": "typo-doubled"},
+  {"q": "Volgaa Shipping", "expected_id": "known-1", "expected_tlp": "yellow", "kind": "typo-extra-letter-partial"},
+
+  {"q": "Müller, Hans", "expected_id": "known-2", "expected_tlp": "red", "kind": "diacritic-name"},
+  {"q": "Mueller, Hans", "expected_id": "known-2", "expected_tlp": "red", "kind": "transliterated-alias"},
+  {"q": "MUELLER HANS", "expected_id": "known-2", "expected_tlp": "red", "kind": "transliterated-rearranged-near-1"},
+
+  {"q": "Tehran Metals Co", "expected_id": "known-3", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "tehran metals", "expected_id": "known-3", "expected_tlp": "red", "kind": "partial-name-near-1"},
+
+  {"q": "Pyongyang Steel Industries", "expected_id": "known-4", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "PYONGYANG STEEL", "expected_id": "known-4", "expected_tlp": "yellow", "kind": "partial-uppercase"},
+
+  {"q": "Petrov Industries Moscow", "expected_id": "known-5", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Petrov Industries", "expected_id": "known-5", "expected_tlp": "red", "kind": "exact-alias"},
+
+  {"q": "Caspian Maritime Group", "expected_id": "known-6", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "caspian maritime", "expected_id": "known-6", "expected_tlp": "red", "kind": "exact-alias-lowercase"},
+
+  {"q": "MV Sea Star", "expected_id": "known-7", "expected_tlp": "red", "kind": "exact-vessel-name"},
+  {"q": "Sea Star", "expected_id": "known-7", "expected_tlp": "red", "kind": "exact-alias-vessel"},
+
+  {"q": "Aircraft N12345", "expected_id": "known-8", "expected_tlp": "red", "kind": "exact-aircraft-name"},
+
+  {"q": "Khan, Abdul", "expected_id": "known-9", "expected_tlp": "red", "kind": "individual-exact-name"},
+  {"q": "Abdul Khan", "expected_id": "known-9", "expected_tlp": "red", "kind": "individual-rearranged-near-1"},
+
+  {"q": "Tehran Aerospace Defense", "expected_id": "known-10", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Aerospace Defense Iran", "expected_id": "known-10", "expected_tlp": "yellow", "kind": "loose-multi-token"},
+
+  {"q": "Singapore Trading Partners", "expected_id": "known-11", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Singapore Trading", "expected_id": "known-11", "expected_tlp": "yellow", "kind": "partial-name"},
+
+  {"q": "Black Sea Shipping Co", "expected_id": "known-12", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Black Sea Shipping", "expected_id": "known-12", "expected_tlp": "red", "kind": "partial-name-near-1"},
+
+  {"q": "Aleksei Volkov", "expected_id": "known-13", "expected_tlp": "red", "kind": "individual-exact-name"},
+  {"q": "Alexei Volkov", "expected_id": "known-13", "expected_tlp": "red", "kind": "individual-exact-alias"},
+
+  {"q": "Damascus Defense Industries", "expected_id": "known-14", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "DDI Damascus", "expected_id": "known-14", "expected_tlp": "red", "kind": "exact-alias-abbrev"},
+
+  {"q": "Kasparov, Mikhail", "expected_id": "known-15", "expected_tlp": "red", "kind": "individual-exact-name"},
+  {"q": "Mikhail Kasparov", "expected_id": "known-15", "expected_tlp": "red", "kind": "individual-exact-alias"},
+
+  {"q": "Crimean Mining Consortium", "expected_id": "known-16", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Crimea Mining", "expected_id": "known-16", "expected_tlp": "red", "kind": "exact-alias"},
+
+  {"q": "Beijing Cyber Solutions", "expected_id": "known-17", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Bejing Cyber Solutions", "expected_id": "known-17", "expected_tlp": "red", "kind": "typo-missing-letter-near-1"},
+
+  {"q": "Lazarev, Yuri", "expected_id": "known-18", "expected_tlp": "red", "kind": "individual-exact-name"},
+  {"q": "Yuri Lazarev", "expected_id": "known-18", "expected_tlp": "red", "kind": "individual-exact-alias"},
+
+  {"q": "Havana Imports Group", "expected_id": "known-19", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Havanna Imports", "expected_id": "known-19", "expected_tlp": "yellow", "kind": "typo-doubled-letter-partial"},
+
+  {"q": "Northeast Industrial Holdings", "expected_id": "known-20", "expected_tlp": "red", "kind": "exact-name"},
+
+  {"q": "Quetzal Insurance Co", "expected_id": "", "expected_tlp": "green", "kind": "no-match"},
+  {"q": "Buttercup Daydream Corp", "expected_id": "", "expected_tlp": "green", "kind": "no-match"},
+  {"q": "", "expected_id": "", "expected_tlp": "green", "kind": "empty-query"},
+  {"q": "the", "expected_id": "", "expected_tlp": "green", "kind": "stopword-only"},
+
+  {"q": "Reza Sharif", "expected_id": "known-21", "expected_tlp": "red", "kind": "individual-exact-name"},
+  {"q": "Sharif, Reza", "expected_id": "known-21", "expected_tlp": "red", "kind": "individual-exact-alias"},
+
+  {"q": "Pyongyang Bank Corp", "expected_id": "known-22", "expected_tlp": "red", "kind": "exact-name"},
+  {"q": "Pyong Yang Bank", "expected_id": "known-22", "expected_tlp": "red", "kind": "exact-alias-split-token"}
+]

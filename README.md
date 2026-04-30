@@ -111,7 +111,7 @@ Trust-boundary diagram lands in M6 when the SPA appears.
 | Component    | Rust              | Mature wit-bindgen support, smallest .wasm artefacts.    | TypeScript (`componentize-js`).    |
 | Codegen      | wit-bindgen 0.54  | Matches upstream wasmCloud fixtures Cargo.lock pin.      | older 0.42-0.50 series.            |
 | WIT fetch    | wkg 0.15.0        | wash 2.0.4's bundled wkg mis-decodes text-WIT overrides. | wash's bundled wkg (broken).       |
-| Search       | TBD M1            | TBD — tantivy or fallback. See `docs/m1-search-engine-decision.md`. | (M1 will record what was tried.) |
+| Search       | Hand-rolled (BM25 + Jaro-Winkler + trigrams) | tantivy fails to compile to wasm32-wasip2 (zstd-sys C dep can't target the triple). Fallback gets 100% top-10 recall on the 10k-record fixture at p95 0.60 ms. See `docs/m1-search-engine-decision.md`. | tantivy default, tantivy single-thread (both blocked on C toolchain). |
 | Storage      | TBD M2            | jsonfs first; sqlite + turso added in M11.               | KV via host bindings.              |
 | UI           | TBD M6            | Vite + Preact + TS planned.                              | React, SolidJS.                    |
 | Passwords    | Argon2id          | Standard.                                                | bcrypt, scrypt.                    |
@@ -124,9 +124,10 @@ Trust-boundary diagram lands in M6 when the SPA appears.
 
 > **TODO (M10):** populated by `make stats` from real built artefacts. No fabricated numbers.
 
-| Component   | Role                          | Wasm size (M0)      | Image ref                                          |
+| Component   | Role                          | Wasm size           | Image ref                                          |
 |-------------|-------------------------------|---------------------|----------------------------------------------------|
-| api-gateway | HTTP entry, routes, auth, TLP | ~83 KB (release)    | `ghcr.io/<owner>/ocelaudit-api-gateway:<tag>`      |
+| api-gateway | HTTP entry, routes, auth, TLP | ~83 KB (release, M0) | `ghcr.io/<owner>/ocelaudit-api-gateway:<tag>`     |
+| search      | BM25 + JW search engine       | host-target only at M1; .wasm landed when wired in M3+ | `ghcr.io/<owner>/ocelaudit-search:<tag>` |
 
 (Other rows land with their components.)
 
@@ -175,6 +176,7 @@ What the attestation **does** prove: this `.wasm` came from the commit named in 
 - **Threads.** Not available in the wasmCloud runtime, regardless of P2/P3. Single-threaded async only. No Rayon, no `std::thread::spawn`.
 - **TypeScript components via componentize-js.** The blog notes this works "but is rougher." We don't use it — Rust everywhere.
 - **wash 2.0.4's bundled `wkg`.** Mis-decodes text-WIT path overrides (treats `.wit` text files as binary component packages, fails on the leading byte). Workaround: install standalone `wkg` 0.15.0 (`cargo install wkg`) and use `wkg wit fetch -t wit` before `wash build --skip-fetch`. The Makefile chains both.
+- **tantivy on wasm32-wasip2.** Doesn't compile — `zstd-sys` (a transitive C dependency) can't target the wasi-p2 triple under the system clang. Solving it requires a wasi-sdk dance the demo isn't worth. We fell back to a hand-rolled BM25+JW engine in M1 — see `docs/m1-search-engine-decision.md`.
 
 **What we faked or skipped (cumulative across milestones, never deleted):**
 - Demo authentication uses two static seeded accounts. No real OAuth/SSO.
@@ -290,7 +292,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 ## Roadmap and known issues
 
 - M0 ✅ — Bootstrap + CI; api-gateway hello-world; release.yml wired.
-- M1 — Search engine decision (riskiest milestone — gates the rest of the project).
+- M1 ✅ — Hand-rolled search engine (tantivy ruled out on wasi-toolchain grounds); 10k-record fixture suite with 100% top-1 / top-10 / TLP and p95 0.60 ms; decision frozen at `docs/m1-search-engine-decision.md`.
 - M2 — Storage component (`storage-jsonfs`).
 - M3 — CSL ingest + scheduled refresh.
 - M4 — API gateway routes (no UI yet).
