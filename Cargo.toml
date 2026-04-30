@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "components/api-gateway",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/cosmonic/ocelaudit"
+publish = false
+
+[workspace.dependencies]
+wit-bindgen = "0.54"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.release.package."*"]
+opt-level = "s"

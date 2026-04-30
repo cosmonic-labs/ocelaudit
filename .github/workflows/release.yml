@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+  attestations: write
+  id-token: write
+
+jobs:
+  test:
+    # Re-run the full CI matrix as a release-time gate. No artifacts get
+    # published if this fails — fix forward on main with a patch bump.
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish components to GHCR
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        component:
+          - api-gateway
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup wash
+        uses: wasmCloud/setup-wash-action@main
+        with:
+          wash-version: v2.0.4
+
+      - name: Setup cargo-auditable wrapper
+        uses: wasmcloud/actions/setup-wash-cargo-auditable@main
+
+      - run: rustup target add wasm32-wasip2
+
+      - id: build
+        uses: wasmcloud/actions/wash-build@main
+        with:
+          working-directory: components/${{ matrix.component }}
+
+      - name: Publish to GHCR with SLSA attestation
+        uses: wasmcloud/actions/wash-oci-publish@main
+        with:
+          component_path: ${{ steps.build.outputs.component_path }}
+          registry: ghcr.io
+          attestation: "true"
+          image_tags: "latest,${{ github.ref_name }}"
+
+  release:
+    name: Cut GitHub Release
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          prev=$(git describe --tags --abbrev=0 "${{ github.ref_name }}^" 2>/dev/null || echo "")
+          {
+            echo "body<<EOF"
+            echo "## What changed"
+            echo
+            if [ -n "$prev" ]; then
+              git log --pretty='format:- %s (%h)' "$prev..${{ github.ref_name }}"
+            else
+              git log --pretty='format:- %s (%h)'
+            fi
+            echo
+            echo
+            echo "## Verify"
+            echo
+            echo '```sh'
+            echo 'gh attestation verify oci://ghcr.io/${{ github.repository_owner }}/ocelaudit-api-gateway:${{ github.ref_name }} \\'
+            echo '  --owner ${{ github.repository_owner }}'
+            echo '```'
+            echo
+            echo "## Caveats"
+            echo
+            echo "See [README.md](./README.md) for the full \"what's real, what's not\" list."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "OcelAudit ${{ github.ref_name }}"
+          body: ${{ steps.notes.outputs.body }}
+          generate_release_notes: false
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') }}

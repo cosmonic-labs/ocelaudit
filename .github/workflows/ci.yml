@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build · test · audit · sbom
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Setup wash
+        uses: wasmCloud/setup-wash-action@main
+        with:
+          wash-version: v2.0.4
+
+      - name: Setup cargo-auditable wrapper
+        uses: wasmcloud/actions/setup-wash-cargo-auditable@main
+
+      - run: rustup target add wasm32-wasip2
+
+      - run: make build
+      - run: make test-rust
+      - run: make test-api
+      - run: make test-ui
+      - run: make audit
+      - run: make sbom
+
+      - name: Upload SBOMs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: components/*/bom.cdx.json
+          if-no-files-found: ignore

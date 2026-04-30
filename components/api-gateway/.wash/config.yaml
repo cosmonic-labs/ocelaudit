@@ -1,0 +1,8 @@
+version: 2.0.4
+
+build:
+  command: cargo build --target wasm32-wasip2 --release -p ocelaudit-api-gateway
+  component_path: ../../target/wasm32-wasip2/release/ocelaudit_api_gateway.wasm
+
+dev:
+  address: 127.0.0.1:8000

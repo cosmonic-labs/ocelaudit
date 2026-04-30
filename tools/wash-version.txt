@@ -1,0 +1,15 @@
+# OcelAudit's pinned wash version.
+#
+# Default path: use the released `wash` binary on $PATH at this version.
+#   wash 2.0.4 has the wasip3 feature compiled in (verified 2026-04-30 via
+#   `strings $(which wash) | grep wasip3`); see .wash/config.yaml for the
+#   `dev.wasip3: true` knob.
+#
+# Escape hatch: if a future P3 capability we depend on lands in upstream
+# main but not in any tagged 2.0.x release, run `tools/build-wash.sh`. It
+# will clone wasmCloud at the SHA below and build wash with --features wasip3.
+# Update the SHA whenever you bump the escape hatch.
+
+released-version: 2.0.4
+escape-hatch-sha: 9cb476a46923529ea40ceeacd1ea2873e34f6375
+escape-hatch-recorded-on: 2026-04-30

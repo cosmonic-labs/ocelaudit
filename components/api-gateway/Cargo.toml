@@ -1,0 +1,15 @@
+[package]
+name = "ocelaudit-api-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "OcelAudit api-gateway component — HTTP entry point (P3)."
+
+[lib]
+name = "ocelaudit_api_gateway"
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen.workspace = true

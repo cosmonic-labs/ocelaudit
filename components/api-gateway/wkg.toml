@@ -1,0 +1,6 @@
+[overrides]
+"wasi:http" = { path = "../../wit/deps/wasi-http" }
+"wasi:clocks" = { path = "../../wit/deps/wasi-clocks" }
+"wasi:random" = { path = "../../wit/deps/wasi-random" }
+"wasi:io" = { path = "../../wit/deps/wasi-io" }
+"wasi:cli" = { path = "../../wit/deps/wasi-cli" }
