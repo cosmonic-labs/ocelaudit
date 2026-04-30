@@ -37,6 +37,17 @@ jobs:
       - name: Setup cargo-auditable wrapper
         uses: wasmcloud/actions/setup-wash-cargo-auditable@main
 
+      - name: Install wkg (standalone)
+        run: |
+          set -euo pipefail
+          version=0.15.0
+          arch=$(uname -m)
+          case "$arch" in x86_64) target="x86_64-unknown-linux-gnu" ;;
+                          aarch64|arm64) target="aarch64-unknown-linux-gnu" ;; esac
+          curl -fsSL -o /usr/local/bin/wkg \
+            "https://github.com/bytecodealliance/wasm-pkg-tools/releases/download/v${version}/wkg-${target}"
+          chmod +x /usr/local/bin/wkg
+
       - run: rustup target add wasm32-wasip2
 
       - id: build
