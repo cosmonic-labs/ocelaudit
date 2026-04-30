@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, type Me } from "./api";
+import { api, ApiError, type Branding, type Me } from "./api";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { SearchPage } from "./pages/Search";
@@ -10,9 +10,11 @@ import { navigate, useRoute } from "./router";
 
 export function App() {
   const [me, setMe] = useState<Me | null>(null);
+  const [brand, setBrand] = useState<Branding | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    api.branding().then(setBrand);
     api
       .me()
       .then((m) => setMe(m))
@@ -25,6 +27,15 @@ export function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (brand) {
+      const root = document.documentElement;
+      root.style.setProperty("--brand-primary", brand.primary_color);
+      root.style.setProperty("--brand-accent", brand.accent_color);
+      document.title = brand.wordmark;
+    }
+  }, [brand]);
+
   const path = useRoute();
 
   if (loading) {
@@ -36,12 +47,18 @@ export function App() {
   }
 
   if (!me) {
-    return <Login onLogin={(u) => setMe({ username: u.username, role: u.role, iat: Date.now() / 1000 })} />;
+    return (
+      <Login
+        brand={brand}
+        onLogin={(u) => setMe({ username: u.username, role: u.role, iat: Date.now() / 1000 })}
+      />
+    );
   }
 
   return (
     <Shell
       me={me}
+      brand={brand}
       onLogout={async () => {
         try {
           await api.logout();
@@ -80,11 +97,14 @@ function renderPage(path: string, me: Me) {
 
 interface ShellProps {
   me: Me;
+  brand: Branding | null;
   onLogout: () => void;
   children: preact.ComponentChildren;
 }
 
-function Shell({ me, onLogout, children }: ShellProps) {
+function Shell({ me, brand, onLogout, children }: ShellProps) {
+  const logo = brand?.logo_url ?? "/brand/ocelot.svg";
+  const wordmark = brand?.wordmark ?? "OcelAudit";
   return (
     <div class="min-h-full">
       <header class="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
@@ -97,8 +117,8 @@ function Shell({ me, onLogout, children }: ShellProps) {
               navigate("/");
             }}
           >
-            <img src="/brand/ocelot.svg" alt="" class="h-8 w-8 text-ocelot-mark dark:text-ocelot-paper" />
-            <span class="font-display text-lg">OcelAudit</span>
+            <img src={logo} alt="" class="h-8 w-8 text-ocelot-mark dark:text-ocelot-paper" />
+            <span class="font-display text-lg">{wordmark}</span>
           </a>
           <nav class="flex items-center gap-4 text-sm">
             <NavLink href="/search" label="Search" />

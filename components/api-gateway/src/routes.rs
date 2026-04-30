@@ -50,6 +50,9 @@ pub(crate) fn dispatch(in_: DispatchInput<'_>) -> RouteResponse {
         // -- always-public CSL surface (helps the unauth login page hint) --
         (Method::Get, "/api/v1/csl/sources") => csl_sources(app),
 
+        // -- always-public branding (login page needs the logo) --
+        (Method::Get, "/api/v1/branding") => branding(),
+
         // -- static SPA assets, served from /data/static/ --
         (Method::Get, "/") => static_assets::serve("/")
             .unwrap_or_else(|| RouteResponse::plain(200, "ocelaudit booting")),
@@ -297,6 +300,39 @@ struct SearchBody {
     fuzzy: Option<bool>,
     #[serde(default)]
     limit: Option<u32>,
+}
+
+/// `/api/v1/branding` config path. The SPA reads this on boot to drive
+/// logo/wordmark/colors. Drop a JSON file at this path under the wash
+/// dev volume mount to override; missing or malformed = defaults.
+const BRANDING_CONFIG_PATH: &str = "/data/static/ocelaudit.config.json";
+
+fn branding() -> RouteResponse {
+    let default = json!({
+        "logo_url": "/brand/ocelot.svg",
+        "wordmark": "OcelAudit",
+        "video_url": null,
+        "primary_color": "#1f2937",
+        "accent_color": "#b45309",
+    });
+    let body = match std::fs::read(BRANDING_CONFIG_PATH) {
+        Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(mut v) => {
+                // Merge: any missing key in the file falls back to default.
+                let obj = v.as_object_mut();
+                let def = default.as_object().unwrap();
+                if let Some(o) = obj {
+                    for (k, dv) in def {
+                        o.entry(k.clone()).or_insert(dv.clone());
+                    }
+                }
+                v
+            }
+            Err(_) => default,
+        },
+        Err(_) => default,
+    };
+    RouteResponse::json(200, body)
 }
 
 /// OFAC-issued lists per Treasury Department.

@@ -1,11 +1,15 @@
 import { useState } from "preact/hooks";
-import { api, ApiError, type Role } from "../api";
+import { api, ApiError, type Branding, type Role } from "../api";
 
 interface Props {
+  brand: Branding | null;
   onLogin: (u: { username: string; role: Role }) => void;
 }
 
-export function Login({ onLogin }: Props) {
+export function Login({ brand, onLogin }: Props) {
+  const logo = brand?.logo_url ?? "/brand/ocelot.svg";
+  const wordmark = brand?.wordmark ?? "OcelAudit";
+  const video = brand?.video_url ?? null;
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,12 +34,23 @@ export function Login({ onLogin }: Props) {
   }
 
   return (
-    <main class="grid h-full place-items-center bg-ocelot-paper dark:bg-ocelot-ink">
-      <div class="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-8 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+    <main class="relative grid h-full place-items-center bg-ocelot-paper dark:bg-ocelot-ink">
+      {video && (
+        <video
+          autoplay
+          muted
+          loop
+          playsInline
+          class="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-30 dark:opacity-20"
+        >
+          <source src={video} />
+        </video>
+      )}
+      <div class="relative w-full max-w-sm rounded-xl border border-neutral-200 bg-white/95 p-8 shadow-sm backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/95">
         <header class="mb-6 flex items-center gap-3">
-          <img src="/brand/ocelot.svg" alt="" class="h-10 w-10 text-ocelot-mark dark:text-ocelot-paper" />
+          <img src={logo} alt="" class="h-10 w-10 text-ocelot-mark dark:text-ocelot-paper" />
           <div>
-            <h1 class="font-display text-xl">OcelAudit</h1>
+            <h1 class="font-display text-xl">{wordmark}</h1>
             <p class="text-xs text-neutral-500">CSL screening · demo</p>
           </div>
         </header>

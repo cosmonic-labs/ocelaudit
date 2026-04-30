@@ -98,6 +98,14 @@ export interface ReviewQueue {
   items: AuditEvent[];
 }
 
+export interface Branding {
+  logo_url: string;
+  wordmark: string;
+  video_url: string | null;
+  primary_color: string;
+  accent_color: string;
+}
+
 export const api = {
   login: (username: string, password: string) =>
     call<{ username: string; role: Role }>("POST", "/api/v1/auth/login", { username, password }),
@@ -134,6 +142,19 @@ export const api = {
       "POST",
       "/api/v1/csl/refresh",
     ),
+  branding: async (): Promise<Branding> => {
+    const r = await fetch("/api/v1/branding", { credentials: "include" });
+    if (!r.ok) {
+      return {
+        logo_url: "/brand/ocelot.svg",
+        wordmark: "OcelAudit",
+        video_url: null,
+        primary_color: "#1f2937",
+        accent_color: "#b45309",
+      };
+    }
+    return (await r.json()) as Branding;
+  },
 };
 
 export { ApiError };

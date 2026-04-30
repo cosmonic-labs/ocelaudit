@@ -224,6 +224,33 @@ Common gotchas:
 
 ---
 
+## Replacing the brand
+
+OcelAudit's mark, wordmark, login video, and theme colors are runtime-configurable. No rebuild required.
+
+1. Drop your assets into the volume's static dir (host: `.cache/ocelaudit-data/static/`, guest: `/data/static/`):
+   ```sh
+   cp my-logo.svg .cache/ocelaudit-data/static/brand/my-logo.svg
+   cp my-video.mp4 .cache/ocelaudit-data/static/video/my-video.mp4
+   ```
+2. Write `.cache/ocelaudit-data/static/ocelaudit.config.json`:
+   ```json
+   {
+     "logo_url": "/brand/my-logo.svg",
+     "wordmark": "AcmeScreen",
+     "video_url": "/video/my-video.mp4",
+     "primary_color": "#0f172a",
+     "accent_color": "#dc2626"
+   }
+   ```
+3. Reload the SPA — it reads `/api/v1/branding` on boot.
+4. To revert, delete the config file. Defaults take over.
+5. (For permanent / committed branding: stage `ui/public/brand/` and `ui/public/video/` in your fork, then rebuild the SPA.)
+
+Missing keys in the config fall back to defaults (so a partial override is fine).
+
+---
+
 ## Configuration
 
 > **TODO (M2+):** every env var lands here as it's introduced.
@@ -304,7 +331,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 - M6 ✅ — Vite + Preact + TS SPA under `ui/` (10 KB CSS + 20 KB JS). Login + Dashboard pages talk to the real backend via the HttpOnly session cookie. Gateway serves `/`, `/assets/*`, `/brand/*` from `/data/static/` with strict CSP and SPA fallback for client-side routes. Total: 83 API assertions.
 - M7 ✅ — Search page (form + filters + TLP-banded result cards + agency citations + 150ms debounced autocomplete), dashboard search bar; tiny URL-driven router (no tanstack/wouter dep). Bundle stays under 32 KB JS gzipped to ~10 KB.
 - M8 ✅ — Audit (paginated list + click-through to detail with full decision history), Review (queue with cleared/blocked decision UI + required note), Admin (admin-only: "Update CSL now" button + threshold display). 5 pages now. Bundle: 40 KB JS, 14 KB CSS, gzipped 16 KB total.
-- M9 — Brand swap milestone.
+- M9 ✅ — `/api/v1/branding` endpoint reads `/data/static/ocelaudit.config.json` (logo, wordmark, video, colors); missing keys fall back to defaults. SPA loads it on boot, applies CSS custom properties, plays the optional login video. 10 new API assertions; brand swap recipe in README below.
 - M10 — Demo polish (`make demo`).
 - M11 — Alternative storage backends (sqlite + turso).
 
