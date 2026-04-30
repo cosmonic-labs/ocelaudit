@@ -7,5 +7,7 @@ world api-gateway {
     import wasi:filesystem/types@0.2.2;
     import wasi:random/random@0.2.2;
 
+    import wasi:http/outgoing-handler@0.2.2;
+
     export wasi:http/incoming-handler@0.2.2;
 }

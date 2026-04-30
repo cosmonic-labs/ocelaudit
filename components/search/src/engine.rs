@@ -339,6 +339,7 @@ impl SearchEngine {
             audit_id: format!("synthetic-{}", q_norm.len()), // real UUIDv7 in M4
             tlp: result_tlp,
             hits,
+            exact_alias_match,
         }
     }
 
@@ -374,6 +375,11 @@ pub struct SearchResult {
     pub audit_id: String,
     pub tlp: Tlp,
     pub hits: Vec<Hit>,
+    /// True when the normalized query equals one of the top-hit's
+    /// surface forms (name or alias) exactly. Drives the
+    /// `auto-block` vs `pending-block` decision split — exact matches
+    /// auto-decide, near-matches go to the review queue.
+    pub exact_alias_match: bool,
 }
 
 #[cfg(test)]

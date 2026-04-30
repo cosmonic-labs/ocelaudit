@@ -35,11 +35,11 @@ fi
 
 # POST /api/v1/csl/refresh — should ingest the fixture.
 refresh_status=$(curl -sS -o /tmp/m3_refresh -w "%{http_code}" -b "$COOKIE_JAR" \
-  -X POST "$BASE_URL/api/v1/csl/refresh")
+  -X POST "$BASE_URL/api/v1/csl/refresh?source=seed")
 if [ "$refresh_status" = "200" ]; then
   _pass_msg "POST /api/v1/csl/refresh -> 200"
 else
-  _fail_msg "POST /api/v1/csl/refresh" "expected 200, got $refresh_status (body: $(cat /tmp/m3_refresh | head -c 200))"
+  _fail_msg "POST /api/v1/csl/refresh?source=seed" "expected 200, got $refresh_status (body: $(cat /tmp/m3_refresh | head -c 200))"
   finish
 fi
 ingested=$(jq -r '.ingested' /tmp/m3_refresh)
@@ -84,7 +84,7 @@ expect_authed_status "$BASE_URL/api/v1/csl/entries/does-not-exist" 404
 # csl/refresh as compliance role should be 403.
 login_as "compliance" "${COMPLIANCE_PASSWORD:?COMPLIANCE_PASSWORD not set by runner}"
 forbidden_status=$(curl -sS -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" \
-  -X POST "$BASE_URL/api/v1/csl/refresh")
+  -X POST "$BASE_URL/api/v1/csl/refresh?source=seed")
 if [ "$forbidden_status" = "403" ]; then
   _pass_msg "POST /api/v1/csl/refresh as compliance -> 403"
 else

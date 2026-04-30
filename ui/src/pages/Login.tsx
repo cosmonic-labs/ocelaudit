@@ -92,9 +92,9 @@ export function Login({ brand, onLogin }: Props) {
         </form>
         <p class="mt-6 text-xs text-neutral-500">
           Demo credentials:{" "}
-          <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">admin / admin</code>{" "}
+          <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">admin / OcelAudit</code>{" "}
           ·{" "}
-          <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">compliance / compliance</code>
+          <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">compliance / OcelAudit</code>
           . Both are fixed defaults — rotate before any real deployment.
         </p>
       </div>

@@ -57,6 +57,8 @@ DATA="$(pwd)/.cache/ocelaudit-data"
 LOG="$(pwd)/.cache/wash-dev.log"
 PID="$(pwd)/.cache/wash-dev.pid"
 FIXTURE="tests/fixtures/csl/sample.json"
+LIVE_CACHE="$(pwd)/.cache/consolidated.json"
+LIVE_URL="https://data.trade.gov/downloadable_consolidated_screening_list/v1/consolidated.json"
 
 if [ ! -f "$FIXTURE" ]; then
   echo "!! bundled CSL fixture not found at $FIXTURE"
@@ -67,8 +69,36 @@ mkdir -p .cache
 rm -rf "$DATA"
 mkdir -p "$DATA/csl" "$DATA/static"
 
-cp "$FIXTURE" "$DATA/csl/seed.json"
-echo "==> staged bundled CSL fixture ($(jq '.results | length' "$FIXTURE") records)"
+# Try to pull a fresh CSL from data.trade.gov so the demo starts with
+# live data. Cache to .cache/consolidated.json (gitignored). Skip the
+# fetch if the cache is fresh enough (24h) so re-running make demo
+# isn't slow on a second pass. On any failure, fall back to the
+# bundled 12-record synthetic fixture — the demo still works.
+seed_source=""
+seed_count=0
+if [ -f "$LIVE_CACHE" ] && [ "$(find "$LIVE_CACHE" -mtime -1 2>/dev/null | wc -l | tr -d ' ')" = "1" ]; then
+  echo "==> using cached live CSL ($(jq '.results | length' "$LIVE_CACHE") records, < 24h old)"
+  cp "$LIVE_CACHE" "$DATA/csl/seed.json"
+  seed_source="trade.gov (cache)"
+  seed_count=$(jq '.results | length' "$DATA/csl/seed.json")
+else
+  echo "==> fetching live CSL from data.trade.gov …"
+  if curl -fsSL --max-time 60 "$LIVE_URL" -o "$LIVE_CACHE.tmp" 2>/dev/null && \
+     jq '.results | length' "$LIVE_CACHE.tmp" >/dev/null 2>&1; then
+    mv "$LIVE_CACHE.tmp" "$LIVE_CACHE"
+    cp "$LIVE_CACHE" "$DATA/csl/seed.json"
+    seed_source="trade.gov (fresh)"
+    seed_count=$(jq '.results | length' "$DATA/csl/seed.json")
+    echo "==> staged $seed_count live records"
+  else
+    rm -f "$LIVE_CACHE.tmp"
+    echo "==> live fetch failed; falling back to bundled fixture"
+    cp "$FIXTURE" "$DATA/csl/seed.json"
+    seed_source="bundled fixture"
+    seed_count=$(jq '.results | length' "$DATA/csl/seed.json")
+  fi
+fi
+echo "==> seed.json: $seed_count records ($seed_source)"
 
 if [ -d ui/dist ]; then
   cp -R ui/dist/* "$DATA/static/"
@@ -111,8 +141,8 @@ fi
 # Demo seed credentials are fixed values (DEMO_ADMIN_PASSWORD /
 # DEMO_COMPLIANCE_PASSWORD in the storage crate). One ping to /healthz
 # kicks the lazy startup so users.json gets written before login.
-admin_pw="admin"
-compl_pw="compliance"
+admin_pw="OcelAudit"
+compl_pw="OcelAudit"
 curl -fsS -o /dev/null -m 1 "http://127.0.0.1:8000/healthz" || true
 
 # ---------- login + ingest (with graceful fallback) ----------
@@ -162,7 +192,7 @@ cat <<EOF
   │   admin       : $admin_pw
   │   compliance  : $compl_pw
   │
-  │   CSL records : $ingest_count (from $FIXTURE)$ingest_note
+  │   CSL records : $ingest_count (seed: $seed_source)$ingest_note
   │
   │   cold-start  : ${elapsed}s   (budget: ${budget}s)
   │

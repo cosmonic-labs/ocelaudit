@@ -16,11 +16,18 @@ export function AdminPage({ me }: Props) {
   return <AdminBody />;
 }
 
+interface RefreshResult {
+  ingested: number;
+  version: string;
+  source: string;
+  warning?: string;
+}
+
 function AdminBody() {
   const [metrics, setMetrics] = useState<MetricsBody | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [refreshResult, setRefreshResult] = useState<{ ingested: number; version: string } | null>(null);
+  const [refreshResult, setRefreshResult] = useState<RefreshResult | null>(null);
 
   async function reload() {
     try {
@@ -38,9 +45,15 @@ function AdminBody() {
   async function refresh() {
     setBusy(true);
     setError(null);
+    setRefreshResult(null);
     try {
       const r = await api.cslRefresh();
-      setRefreshResult({ ingested: r.ingested, version: r.version });
+      setRefreshResult({
+        ingested: r.ingested,
+        version: r.version,
+        source: r.source,
+        warning: r.warning,
+      });
       await reload();
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -84,18 +97,40 @@ function AdminBody() {
             type="button"
             disabled={busy}
             onClick={refresh}
-            class="rounded bg-ocelot-mark px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-ocelot-paper dark:text-ocelot-ink"
+            class="inline-flex items-center gap-2 rounded bg-ocelot-mark px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-ocelot-paper dark:text-ocelot-ink"
           >
-            {busy ? "refreshing…" : "Update CSL now"}
+            {busy && (
+              <span
+                class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                aria-hidden
+              />
+            )}
+            {busy ? "fetching from trade.gov…" : "Update CSL now"}
           </button>
           <p class="text-xs text-neutral-500">
-            Reads <code>/data/csl/seed.json</code>. Live HTTP fetch lands in a later milestone.
+            Tries a live HTTPS pull from <code>data.trade.gov</code>; falls back to
+            <code>/data/csl/seed.json</code> on any failure.
           </p>
         </div>
         {refreshResult && (
-          <p class="mt-3 rounded bg-tlp-green/10 px-3 py-2 text-sm text-tlp-green">
-            ingested {refreshResult.ingested} records (version {refreshResult.version}).
-          </p>
+          <div class="mt-3 space-y-2">
+            <p
+              class={`rounded px-3 py-2 text-sm ${
+                refreshResult.source === "trade.gov"
+                  ? "bg-tlp-green/10 text-tlp-green"
+                  : "bg-tlp-yellow/10 text-tlp-yellow"
+              }`}
+            >
+              {refreshResult.source === "trade.gov" ? "✓" : "⚠"} ingested{" "}
+              <strong>{refreshResult.ingested.toLocaleString()}</strong> records from{" "}
+              <code>{refreshResult.source}</code> (version {refreshResult.version}).
+            </p>
+            {refreshResult.warning && (
+              <p class="rounded bg-neutral-200/60 px-3 py-2 text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                <strong>fallback note:</strong> {refreshResult.warning}
+              </p>
+            )}
+          </div>
         )}
       </section>
 

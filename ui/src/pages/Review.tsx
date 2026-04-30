@@ -1,12 +1,19 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, type AuditEvent } from "../api";
 
+interface Toast {
+  audit_id: string;
+  decision: "cleared" | "blocked";
+  decided_by: string;
+}
+
 export function ReviewPage() {
   const [items, setItems] = useState<AuditEvent[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<Toast | null>(null);
 
   async function reload() {
     try {
@@ -29,10 +36,13 @@ export function ReviewPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.reviewDecide(audit_id, decision, note.trim());
+      const r = await api.reviewDecide(audit_id, decision, note.trim());
+      setToast({ audit_id, decision, decided_by: r.decided_by });
       setNote("");
       setActiveId(null);
       await reload();
+      // Surface the toast for ~6s then drop it.
+      window.setTimeout(() => setToast((t) => (t?.audit_id === audit_id ? null : t)), 6000);
     } catch (e) {
       setError(String((e as Error).message ?? e));
     } finally {
@@ -50,6 +60,19 @@ export function ReviewPage() {
       {error && (
         <p class="mb-4 rounded border border-tlp-red/40 bg-tlp-red/10 px-3 py-2 text-sm text-tlp-red">
           {error}
+        </p>
+      )}
+
+      {toast && (
+        <p
+          class={`mb-4 rounded border px-3 py-2 text-sm ${
+            toast.decision === "cleared"
+              ? "border-tlp-green/40 bg-tlp-green/10 text-tlp-green"
+              : "border-tlp-red/40 bg-tlp-red/10 text-tlp-red"
+          }`}
+        >
+          ✓ <code class="rounded bg-white/40 px-1 dark:bg-black/30">{toast.audit_id.slice(0, 8)}…</code> marked{" "}
+          <strong>{toast.decision}</strong> by {toast.decided_by} — recorded in the audit log.
         </p>
       )}
 

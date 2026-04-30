@@ -47,10 +47,15 @@ class ApiError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {
+    // Tag every request from the SPA so /audit can show ui vs. api.
+    "x-ocelaudit-source": "ui",
+  };
+  if (body) headers["content-type"] = "application/json";
   const init: RequestInit = {
     method,
     credentials: "include",
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   };
   const r = await fetch(path, init);
@@ -75,6 +80,7 @@ export interface AuditEvent {
   tlp: string;
   decision: string;
   initial_decision?: string;
+  source?: string;
   top_hit_ids: string[];
   history?: WorkflowHistoryEntry[];
 }
@@ -138,10 +144,13 @@ export const api = {
       { decision, note: note ?? null },
     ),
   cslRefresh: () =>
-    call<{ ingested: number; fetched_at: number; version: string; source_path: string }>(
-      "POST",
-      "/api/v1/csl/refresh",
-    ),
+    call<{
+      ingested: number;
+      fetched_at: number;
+      version: string;
+      source: string;
+      warning?: string;
+    }>("POST", "/api/v1/csl/refresh"),
   branding: async (): Promise<Branding> => {
     const r = await fetch("/api/v1/branding", { credentials: "include" });
     if (!r.ok) {

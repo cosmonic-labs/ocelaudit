@@ -15,7 +15,7 @@ OcelAudit is a CNCF wasmCloud v2 demonstration that screens entities (people, or
 
 **This is a demo, not a product.** Specifically:
 - No HTTPS termination — wasmCloud serves plain HTTP. Put a reverse proxy in front for any real deployment.
-- Demo authentication only — two seeded users with **fixed default passwords**: `admin/admin` and `compliance/compliance`. Argon2id-hashed at rest; the seed values are constants in `components/storage-jsonfs/src/lib.rs`. Rotate before any real deployment. No OAuth, no SSO.
+- Demo authentication only — two seeded users with **fixed default passwords**: `admin/OcelAudit` and `compliance/OcelAudit`. Argon2id-hashed at rest; the seed values are constants in `components/storage-jsonfs/src/lib.rs`. Rotate before any real deployment. No OAuth, no SSO.
 - Single-tenant. No org isolation, no multi-tenant data partitioning.
 - No SLA on the CSL data feed. The trade.gov endpoint changes paths historically.
 - Sessions don't survive a host restart.
@@ -184,7 +184,7 @@ What the attestation **does** prove: this `.wasm` came from the commit named in 
 - Demo authentication uses two static seeded accounts. No real OAuth/SSO.
 - Sessions don't survive a host restart.
 - **"PEP screening" is approximated from CSL signals — not a true PEP feed.** `/api/v1/screen/pep` filters to `PLC` (Palestinian Legislative Council) plus other CSL records of publicly-listed officials. The response body always carries a DISCLAIMER note. Use a dedicated PEP database for real compliance.
-- **CSL refresh (M3) reads from a file path under the wash dev volume mount, not a live trade.gov HTTP fetch.** Drop your `consolidated.json` at `/data/csl/seed.json` (host: `.cache/ocelaudit-data/csl/seed.json`) and POST `/api/v1/csl/refresh`. Real `wasi:http/outgoing-handler` fetch lands later. Reason: implementing it pulls in the `wstd` async-runtime dep, which we deferred to keep M3 focused on the parse/store path.
+- **CSL refresh tries `wasi:http/outgoing-handler` to data.trade.gov first** (M12), falls back to a file at `/data/csl/seed.json` if the fetch fails, parse fails, or `?source=seed` is passed. The Admin "Update CSL now" button surfaces the source (trade.gov vs. seed.json) and any fallback warning. `tools/demo.sh` also pre-fetches the live data on first run and caches it for 24h.
 - No in-process scheduled refresh. WASI P2 components are request/response — they don't run loops between calls. Use an external scheduler (cron, systemd timer, k8s CronJob) that hits `/api/v1/csl/refresh`.
 - **Each WASI P2 incoming-handler call is a fresh component instance.** That means in-process state (signing key, cached search index, anything in `OnceCell`) doesn't survive between requests; it has to be persisted to disk or rebuilt each call. We persist the session signing key to `/data/session.key`; the search index is rebuilt per query (acceptable on the 10k-record fixture; M5 will look at amortizing it).
 - No HTTPS termination. Plain HTTP only.
@@ -334,6 +334,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 - M9 ✅ — `/api/v1/branding` endpoint reads `/data/static/ocelaudit.config.json` (logo, wordmark, video, colors); missing keys fall back to defaults. SPA loads it on boot, applies CSS custom properties, plays the optional login video. 10 new API assertions; brand swap recipe in README below.
 - M10 ✅ — `make demo` (cold-start bootstrap, prints URL + creds, opens browser); `make stats` (per-component wasm size table from real artefacts); `docs/demo-script.md` (90-second walkthrough hitting every TLP outcome).
 - M11 ✅ — Extracted `pub trait Storage` (16 methods, object-safe). `JsonFsStorage` (M2) + `MemoryStorage` (new, ephemeral) both implement it. Gateway holds `Box<dyn Storage>` and dispatches on `STORAGE_BACKEND` env (`jsonfs:<dir>` / `memory:`). SQLite + Turso documented as future work in `docs/storage-backends.md` — both blocked on wasi-sdk, with a complete walkthrough of how to unblock them.
+- M12 ✅ — Live CSL data: `tools/demo.sh` pre-fetches `data.trade.gov` (25,600 records, 31MB) cached locally; runtime `/api/v1/csl/refresh` makes a real `wasi:http/outgoing-handler` HTTPS call before falling back to the staged seed; `?source=seed` overrides for deterministic tests. New `auto-block` decision state for exact name/alias matches (vs. `pending-block` for high-similarity-but-not-exact). `X-OcelAudit-Source` header propagates through `SearchEvent` → `/audit` table column. Audit list gets per-column filters; review page shows post-decision toast referencing the user; admin "Update CSL now" surfaces source + record count + warnings. Default credentials are now `admin / OcelAudit` and `compliance / OcelAudit`. 101 API assertions across the suite.
 
 Known issues (will not be quietly removed once acknowledged):
 - WASI P3 not usable on wash 2.0.4 — see "WASI P3 caveats". Tracked upstream in [wasmCloud#5028](https://github.com/wasmCloud/wasmCloud/issues/5028).

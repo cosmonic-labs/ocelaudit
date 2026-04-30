@@ -12,7 +12,7 @@ source "$(dirname "$0")/_lib.sh"
 wait_for "$BASE_URL/healthz" 5 || { echo "!! gateway unreachable"; exit 1; }
 
 login_as "admin" "${ADMIN_PASSWORD:?}"
-auth_curl -X POST "$BASE_URL/api/v1/csl/refresh" >/dev/null
+auth_curl -X POST "$BASE_URL/api/v1/csl/refresh?source=seed" >/dev/null
 
 login_as "compliance" "${COMPLIANCE_PASSWORD:?}"
 
@@ -36,8 +36,8 @@ if [ "$got_tlp" = "red" ]; then _pass_msg "/audit/{red} tlp=red"
 else _fail_msg "/audit/{red} tlp" "got $got_tlp"; fi
 if [ "$got_who" = "compliance" ]; then _pass_msg "/audit/{red} who=compliance"
 else _fail_msg "/audit/{red} who" "got $got_who"; fi
-if [ "$got_decision" = "pending-block" ]; then _pass_msg "/audit/{red} decision=pending-block"
-else _fail_msg "/audit/{red} decision" "got $got_decision"; fi
+if [ "$got_decision" = "auto-block" ]; then _pass_msg "/audit/{red exact-match} decision=auto-block"
+else _fail_msg "/audit/{red} decision" "expected auto-block, got $got_decision"; fi
 
 # /audit list, default pagination, returns at least 3 events newest-first.
 body=$(auth_curl "$BASE_URL/api/v1/audit?limit=10")

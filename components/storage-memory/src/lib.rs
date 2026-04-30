@@ -296,6 +296,7 @@ mod tests {
                 tlp: "green".into(),
                 top_hit_ids: vec![],
                 decision: "auto-green".into(),
+                source: "api".into(),
             })
             .unwrap();
         }

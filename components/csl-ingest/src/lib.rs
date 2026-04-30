@@ -16,7 +16,20 @@
 //! the README's "what we faked or skipped" section.
 
 use ocelaudit_search::{CslEntry, EntityType};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// `#[serde(deserialize_with = "null_to_default")]` adapter so a JSON
+/// `null` for a Vec field deserializes as `Vec::new()` instead of
+/// failing. The live trade.gov CSL emits `null` for absent
+/// `alt_names`, `programs`, `addresses`, etc., on ~12% of records.
+fn null_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    let opt = Option::<T>::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
 
 pub mod source_meta;
 
@@ -75,19 +88,19 @@ struct ExternalRecord {
     id: Option<String>,
     #[serde(default)]
     name: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     alt_names: Vec<String>,
     #[serde(default, rename = "type")]
     type_: Option<String>,
     #[serde(default)]
     source: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     programs: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     addresses: Vec<ExternalAddress>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     nationalities: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_to_default")]
     citizenships: Vec<String>,
 }
 
@@ -134,6 +147,13 @@ pub fn parse_external_json(bytes: &[u8]) -> Result<Vec<CslEntry>, IngestError> {
         CslJson::Bare(v) => v,
     };
 
+    // The live trade.gov feed contains ~91 groups of records sharing
+    // the same `id` (different addresses or programs in each row).
+    // Suffixing with a per-id sequence keeps every row distinct so the
+    // engine can return them as separate hits.
+    let mut id_counts: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
+
     let mut out = Vec::with_capacity(records.len());
     for (i, r) in records.into_iter().enumerate() {
         let name = match r.name.as_deref() {
@@ -145,10 +165,17 @@ pub fn parse_external_json(bytes: &[u8]) -> Result<Vec<CslEntry>, IngestError> {
             .map(str::to_string)
             .unwrap_or_else(|| source_raw.to_string());
         let entity_type = parse_entity_type(r.type_.as_deref().unwrap_or(""));
-        let id = r
+        let raw_id = r
             .id
             .clone()
             .unwrap_or_else(|| format!("{}-{}", source_list, i));
+        let count = id_counts.entry(raw_id.clone()).or_insert(0);
+        let id = if *count == 0 {
+            raw_id.clone()
+        } else {
+            format!("{}#{}", raw_id, *count + 1)
+        };
+        *count += 1;
         let addresses: Vec<String> = r
             .addresses
             .iter()
@@ -259,6 +286,19 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_ids_get_distinct_suffixes() {
+        let json = br#"{"results":[
+            {"id":"X","name":"X-row-1","type":"Entity","source":"Specially Designated Nationals (SDN) - Treasury Department"},
+            {"id":"X","name":"X-row-2","type":"Entity","source":"Specially Designated Nationals (SDN) - Treasury Department"},
+            {"id":"X","name":"X-row-3","type":"Entity","source":"Specially Designated Nationals (SDN) - Treasury Department"}
+        ]}"#;
+        let entries = parse_external_json(json).unwrap();
+        assert_eq!(entries.len(), 3);
+        let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["X", "X#2", "X#3"]);
+    }
+
+    #[test]
     fn synthesizes_id_when_missing() {
         let json = br#"[{"name":"Anon","type":"Entity","source":"Specially Designated Nationals (SDN) - Treasury Department"}]"#;
         let entries = parse_external_json(json).unwrap();
@@ -285,6 +325,24 @@ mod tests {
         let mut nats = entries[0].nationalities.clone();
         nats.sort();
         assert_eq!(nats, vec!["DE", "IR"]);
+    }
+
+    #[test]
+    fn tolerates_null_array_fields() {
+        // Real trade.gov data emits null for absent arrays. Exercised
+        // here with all five Vec fields nulled out.
+        let json = br#"{"results":[
+            {"name":"Anon","type":"Entity",
+             "source":"Specially Designated Nationals (SDN) - Treasury Department",
+             "alt_names":null,"programs":null,"addresses":null,
+             "nationalities":null,"citizenships":null}
+        ]}"#;
+        let entries = parse_external_json(json).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].aliases.is_empty());
+        assert!(entries[0].programs.is_empty());
+        assert!(entries[0].addresses.is_empty());
+        assert!(entries[0].nationalities.is_empty());
     }
 
     #[test]

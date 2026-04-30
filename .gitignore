@@ -5,7 +5,8 @@ Cargo.lock.bak
 **/build/
 **/*.wasm
 
-# wash + dev caches
+# wash + dev caches (also covers .cache/consolidated.json — the live
+# CSL snapshot demo.sh fetches; never bundled in git).
 .cache/
 .wash/cache/
 

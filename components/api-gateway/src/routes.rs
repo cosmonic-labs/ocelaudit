@@ -24,6 +24,7 @@ pub(crate) struct DispatchInput<'a> {
     pub path: &'a str,
     pub query_string: Option<&'a str>,
     pub cookie_header: Option<&'a str>,
+    pub source: &'a str,
     pub body: Option<&'a [u8]>,
     pub app: &'a Result<&'static AppState, String>,
 }
@@ -85,20 +86,20 @@ fn dispatch_authed(
 
         (Method::Get, "/api/v1/csl/metadata") => csl_metadata(app),
         (Method::Post, "/api/v1/csl/refresh") => {
-            require_admin(session).unwrap_or_else(|| csl_refresh(app))
+            require_admin(session).unwrap_or_else(|| csl_refresh(app, in_.query_string))
         }
         (Method::Get, p) if p.starts_with("/api/v1/csl/entries/") => {
             let id = p.trim_start_matches("/api/v1/csl/entries/");
             csl_entry(app, id)
         }
 
-        (Method::Post, "/api/v1/search") => search(app, session, in_.body, None, None),
+        (Method::Post, "/api/v1/search") => search(app, session, in_.body, in_.source, None, None),
         (Method::Get, "/api/v1/search/autocomplete") => {
             autocomplete(app, in_.query_string)
         }
 
-        (Method::Post, "/api/v1/screen/ofac") => screen_ofac(app, session, in_.body),
-        (Method::Post, "/api/v1/screen/pep") => screen_pep(app, session, in_.body),
+        (Method::Post, "/api/v1/screen/ofac") => screen_ofac(app, session, in_.body, in_.source),
+        (Method::Post, "/api/v1/screen/pep") => screen_pep(app, session, in_.body, in_.source),
 
         (Method::Get, "/api/v1/audit") => audit_list(app, in_.query_string),
         (Method::Get, p) if p.starts_with("/api/v1/audit/") => {
@@ -225,27 +226,62 @@ fn csl_sources(app: &AppState) -> RouteResponse {
     RouteResponse::json(200, json!({"known": metas, "counts": counts}))
 }
 
-fn csl_refresh(app: &AppState) -> RouteResponse {
-    let bytes = match std::fs::read(CSL_SEED_PATH) {
-        Ok(b) => b,
-        Err(e) => {
-            return RouteResponse::err(
-                404,
-                format!(
-                    "no CSL seed at {}: {}. Drop a JSON file there and try again. \
-                     Real HTTP fetch lands in a later milestone.",
-                    CSL_SEED_PATH, e
-                ),
-            )
+fn csl_refresh(app: &AppState, query: Option<&str>) -> RouteResponse {
+    let when = clocks::wall_clock::now().seconds;
+
+    // `?source=seed` forces the seed-file path (skipping the live HTTP
+    // fetch). Used by the test suite (which expects deterministic
+    // synthetic data) and by anyone who's pre-staged a specific
+    // snapshot at /data/csl/seed.json. Default: try live first.
+    let force_seed = query
+        .map(|q| q.split('&').any(|kv| kv == "source=seed"))
+        .unwrap_or(false);
+
+    let (bytes, source, fetch_warning) = if force_seed {
+        (Vec::new(), "seed.json", None)
+    } else {
+        match crate::csl_fetch::fetch_consolidated_json() {
+            Ok(ok) if ok.status == 200 && !ok.bytes.is_empty() => {
+                (ok.bytes, "trade.gov", None)
+            }
+            Ok(ok) => (
+                Vec::new(),
+                "trade.gov",
+                Some(format!(
+                    "live fetch returned http {} / {} bytes",
+                    ok.status,
+                    ok.bytes.len()
+                )),
+            ),
+            Err(e) => (Vec::new(), "trade.gov", Some(format!("live fetch failed: {}", e))),
         }
     };
+
+    let (bytes, source, warning) = if !bytes.is_empty() {
+        (bytes, source, fetch_warning)
+    } else {
+        match std::fs::read(CSL_SEED_PATH) {
+            Ok(b) => (b, "seed.json", fetch_warning),
+            Err(e) => {
+                return RouteResponse::err(
+                    503,
+                    format!(
+                        "{}; seed fallback at {} also unreadable: {}",
+                        fetch_warning.unwrap_or_else(|| "live fetch failed".into()),
+                        CSL_SEED_PATH,
+                        e
+                    ),
+                );
+            }
+        }
+    };
+
     let entries = match parse_external_json(&bytes) {
         Ok(e) => e,
         Err(e) => return RouteResponse::err(400, format!("parse failed: {}", e)),
     };
     let count = entries.len();
-    let when = clocks::wall_clock::now().seconds;
-    let version = format!("seed-{}", when);
+    let version = format!("{}-{}", source, when);
     if let Err(e) = app
         .storage
         .csl_bulk_replace(entries, when, version.clone())
@@ -253,15 +289,16 @@ fn csl_refresh(app: &AppState) -> RouteResponse {
         return RouteResponse::err(500, e.to_string());
     }
     app.invalidate_engine();
-    RouteResponse::json(
-        200,
-        json!({
-            "ingested": count,
-            "fetched_at": when,
-            "version": version,
-            "source_path": CSL_SEED_PATH,
-        }),
-    )
+    let mut body = json!({
+        "ingested": count,
+        "fetched_at": when,
+        "version": version,
+        "source": source,
+    });
+    if let Some(w) = warning {
+        body.as_object_mut().unwrap().insert("warning".into(), json!(w));
+    }
+    RouteResponse::json(200, body)
 }
 
 fn csl_entry(app: &AppState, id: &str) -> RouteResponse {
@@ -348,6 +385,7 @@ fn search(
     app: &AppState,
     session: &Session,
     body: Option<&[u8]>,
+    source: &str,
     forced_sources: Option<Vec<String>>,
     note: Option<&str>,
 ) -> RouteResponse {
@@ -390,9 +428,14 @@ fn search(
     let when = clocks::wall_clock::now().seconds;
     let top_ids: Vec<String> = result.hits.iter().take(5).map(|h| h.entry_id.clone()).collect();
     let tlp_str = tlp_token(result.tlp);
+    // RED with an exact name/alias match goes auto-block (no review
+    // needed — the entity is on the list verbatim). RED with high
+    // similarity but not exact stays pending-block (compliance reviews).
+    // YELLOW always pending-review. GREEN auto-clears.
     let decision = match result.tlp {
         Tlp::Green => "auto-green",
         Tlp::Yellow => "pending-review",
+        Tlp::Red if result.exact_alias_match => "auto-block",
         Tlp::Red => "pending-block",
     };
     let event = SearchEvent {
@@ -403,6 +446,7 @@ fn search(
         tlp: tlp_str.into(),
         top_hit_ids: top_ids.clone(),
         decision: decision.into(),
+        source: source.to_string(),
     };
     if let Err(e) = app.storage.audit_log(&event) {
         return RouteResponse::err(500, format!("audit_log: {}", e));
@@ -454,12 +498,14 @@ fn screen_ofac(
     app: &AppState,
     session: &Session,
     body: Option<&[u8]>,
+    source: &str,
 ) -> RouteResponse {
     let forced = OFAC_SOURCES.iter().map(|s| s.to_string()).collect();
     search(
         app,
         session,
         body,
+        source,
         Some(forced),
         Some("Filter restricted to OFAC-issued source lists (SDN, NS-MBS, NS-ISA, FSE, SSI, CAPTA, PLC)."),
     )
@@ -469,12 +515,14 @@ fn screen_pep(
     app: &AppState,
     session: &Session,
     body: Option<&[u8]>,
+    source: &str,
 ) -> RouteResponse {
     let forced = PEP_SOURCES.iter().map(|s| s.to_string()).collect();
     search(
         app,
         session,
         body,
+        source,
         Some(forced),
         Some(
             "DISCLAIMER: this is not a true PEP feed. The CSL doesn't include PEP per se; \
@@ -588,6 +636,7 @@ fn audit_get(app: &AppState, id: &str) -> RouteResponse {
             "top_hit_ids": event.top_hit_ids,
             "decision": current,
             "initial_decision": event.decision,
+            "source": event.source,
             "history": history,
         }),
     )

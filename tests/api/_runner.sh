@@ -64,8 +64,8 @@ fi
 # Demo seed credentials are fixed values per the storage crate
 # constants (DEMO_ADMIN_PASSWORD / DEMO_COMPLIANCE_PASSWORD). The
 # gateway still logs them once on a fresh boot for visibility.
-export ADMIN_PASSWORD="admin"
-export COMPLIANCE_PASSWORD="compliance"
+export ADMIN_PASSWORD="OcelAudit"
+export COMPLIANCE_PASSWORD="OcelAudit"
 
 echo ">> running tests/api/m*.sh against $BASE_URL"
 fail=0

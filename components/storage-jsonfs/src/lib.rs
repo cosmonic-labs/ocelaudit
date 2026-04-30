@@ -140,6 +140,15 @@ pub struct SearchEvent {
     pub tlp: String,
     pub top_hit_ids: Vec<String>,
     pub decision: String,
+    /// "ui" | "api" | …  Tracks the surface the request came in on so the
+    /// audit log can colour-code (M12). Older events without this field
+    /// deserialize as "api" via the default.
+    #[serde(default = "default_event_source")]
+    pub source: String,
+}
+
+fn default_event_source() -> String {
+    "api".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -439,8 +448,8 @@ pub struct SeededCredentials {
 /// Demo-only seed credentials. Both implementations of `Storage` use
 /// these. Documented in the README so the demo banner doesn't need to
 /// scrape stderr for random values anymore.
-pub const DEMO_ADMIN_PASSWORD: &str = "admin";
-pub const DEMO_COMPLIANCE_PASSWORD: &str = "compliance";
+pub const DEMO_ADMIN_PASSWORD: &str = "OcelAudit";
+pub const DEMO_COMPLIANCE_PASSWORD: &str = "OcelAudit";
 
 fn hash_password(plain: &str) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);

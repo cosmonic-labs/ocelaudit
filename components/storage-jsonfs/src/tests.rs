@@ -137,6 +137,7 @@ fn synth_event(id: &str, who: &str) -> SearchEvent {
         tlp: "green".into(),
         top_hit_ids: vec![],
         decision: "auto-green".into(),
+        source: "api".into(),
     }
 }
 

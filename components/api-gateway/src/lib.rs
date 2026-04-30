@@ -10,7 +10,14 @@ use wasi::http::types::{
     Fields, IncomingRequest, OutgoingBody, OutgoingResponse, ResponseOutparam,
 };
 
+/// Default value of the X-OcelAudit-Source header. Tracks the surface
+/// that originated a request (the SPA sets `ui`; everything else is
+/// considered an external API call).
+pub(crate) const DEFAULT_REQUEST_SOURCE: &str = "api";
+pub(crate) const SOURCE_HEADER: &str = "x-ocelaudit-source";
+
 mod auth;
+mod csl_fetch;
 mod routes;
 mod state;
 mod static_assets;
@@ -44,6 +51,8 @@ impl Guest for Component {
         let path = raw_path.split('?').next().unwrap_or("/").to_string();
         let query_string = raw_path.split_once('?').map(|(_, q)| q.to_string());
         let cookie_header = read_cookie_header(&request);
+        let source = read_header(&request, SOURCE_HEADER)
+            .unwrap_or_else(|| DEFAULT_REQUEST_SOURCE.to_string());
         let body = read_body(request);
 
         let app_result = app();
@@ -52,6 +61,7 @@ impl Guest for Component {
             path: &path,
             query_string: query_string.as_deref(),
             cookie_header: cookie_header.as_deref(),
+            source: &source,
             body: body.as_deref(),
             app: &app_result,
         });
@@ -61,13 +71,37 @@ impl Guest for Component {
 }
 
 fn read_cookie_header(req: &IncomingRequest) -> Option<String> {
+    read_header(req, "cookie")
+}
+
+/// Read a single header value (first if duplicated). wasi:http's
+/// `Fields::get` is case-sensitive even though HTTP is not, so we
+/// probe a couple of common casings before giving up.
+fn read_header(req: &IncomingRequest, name: &str) -> Option<String> {
     let headers = req.headers();
-    // wasi:http header names are case-sensitive in the API even though
-    // HTTP itself is case-insensitive. Probe both common casings.
-    for name in &["cookie", "Cookie"] {
-        let entries = headers.get(&name.to_string());
+    let mut variants = vec![name.to_string()];
+    let titled: String = name
+        .split('-')
+        .map(|part| {
+            let mut c = part.chars();
+            match c.next() {
+                Some(first) => {
+                    first.to_ascii_uppercase().to_string() + c.as_str().to_ascii_lowercase().as_str()
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("-");
+    if titled != name {
+        variants.push(titled);
+    }
+    for v in variants {
+        let entries = headers.get(&v);
         if let Some(raw) = entries.into_iter().next() {
-            return String::from_utf8(raw).ok();
+            if let Ok(s) = String::from_utf8(raw) {
+                return Some(s);
+            }
         }
     }
     None
