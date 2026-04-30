@@ -33,9 +33,9 @@ build: build-ui ## Build every component (SPA + wasm via wkg fetch + wash build)
 build-ui: ## Build the SPA bundle (no-op if pnpm/ui is missing)
 	@if [ -f ui/package.json ] && command -v pnpm >/dev/null 2>&1; then \
 	  echo ">> pnpm --dir ui install --frozen-lockfile"; \
-	  (cd ui && pnpm install --frozen-lockfile --silent); \
+	  (cd ui && pnpm install --frozen-lockfile --reporter=silent); \
 	  echo ">> pnpm --dir ui build"; \
-	  (cd ui && pnpm build --silent); \
+	  (cd ui && pnpm build); \
 	else \
 	  echo "  (skipping SPA build — pnpm or ui/ missing)"; \
 	fi

@@ -75,6 +75,19 @@ export const api = {
   metrics: () => call<MetricsBody>("GET", "/api/v1/metrics"),
   search: (q: string, opts?: Partial<{ sources: string[]; entity_types: string[]; fuzzy: boolean; limit: number }>) =>
     call<SearchResponse>("POST", "/api/v1/search", { q, ...opts }),
+  autocomplete: async (q: string): Promise<string[]> => {
+    if (!q) return [];
+    const r = await fetch(`/api/v1/search/autocomplete?q=${encodeURIComponent(q)}`, {
+      credentials: "include",
+    });
+    if (!r.ok) return [];
+    return (await r.json()) as string[];
+  },
+  cslSources: () =>
+    call<{ known: { code: string; long_name: string; agency_url: string }[]; counts: { name: string; count: number }[] }>(
+      "GET",
+      "/api/v1/csl/sources",
+    ),
 };
 
 export { ApiError };
