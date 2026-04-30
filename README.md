@@ -217,7 +217,7 @@ make dev        # boots `wash dev` for components/api-gateway
 ```
 
 Common gotchas:
-- "build.command is required in wash config" — you cd'd into the wrong directory. `wash build` reads `.wash/config.yaml` from CWD; run it from a component crate directory.
+- "build.command is required in wash config" — historically meant you'd cd'd into the wrong directory. As of v0.12.2 the repo root has its own `.wash/config.yaml`, so `wash dev` and `wash build` work from the project root or from any component crate. If you still see this error, you're either in a deeper subdirectory or your `wash` is older than v2.0.5.
 - "failed to decode content of dependency" during wash build — that's wash 2.0.4's bundled wkg. The Makefile uses standalone `wkg` to fetch deps first; if you're calling wash directly, run `wkg wit fetch -t wit` first then `wash build --skip-fetch`.
 - "stream requires the component model async feature" — you're trying to run a P3 component on wash 2.0.4. We're on P2 — see "WASI P3 caveats" above.
 

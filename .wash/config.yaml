@@ -1,0 +1,23 @@
+version: 2.0.4
+
+# Run `wash dev` (or `wash build`) from the repo root.
+#
+# Each component crate also has its own `.wash/config.yaml`, with paths
+# relative to the component dir; running `wash build` from inside a
+# component dir keeps working too. This root-level config exists so that
+# `wash dev` in the project root "just works" without the user needing
+# to know which subdirectory holds the primary component.
+
+build:
+  # Wraps two steps because wash 2.0.x's bundled wkg mis-decodes
+  # text-WIT path overrides — see PLAN.md §0 / docs/storage-backends.md.
+  # The script does the wkg-text-WIT fetch in components/api-gateway/
+  # then runs cargo auditable build for the component.
+  command: bash tools/build-component.sh
+  component_path: target/wasm32-wasip2/release/ocelaudit_api_gateway.wasm
+
+dev:
+  address: 127.0.0.1:8000
+  volumes:
+    - host_path: ./.cache/ocelaudit-data
+      guest_path: /data
