@@ -183,7 +183,7 @@ What the attestation **does** prove: this `.wasm` came from the commit named in 
 **What we faked or skipped (cumulative across milestones, never deleted):**
 - Demo authentication uses two static seeded accounts. No real OAuth/SSO.
 - Sessions don't survive a host restart.
-- "PEP screening" is approximated from CSL signals — not a true PEP feed.
+- **"PEP screening" is approximated from CSL signals — not a true PEP feed.** `/api/v1/screen/pep` filters to `PLC` (Palestinian Legislative Council) plus other CSL records of publicly-listed officials. The response body always carries a DISCLAIMER note. Use a dedicated PEP database for real compliance.
 - **CSL refresh (M3) reads from a file path under the wash dev volume mount, not a live trade.gov HTTP fetch.** Drop your `consolidated.json` at `/data/csl/seed.json` (host: `.cache/ocelaudit-data/csl/seed.json`) and POST `/api/v1/csl/refresh`. Real `wasi:http/outgoing-handler` fetch lands later. Reason: implementing it pulls in the `wstd` async-runtime dep, which we deferred to keep M3 focused on the parse/store path.
 - No in-process scheduled refresh. WASI P2 components are request/response — they don't run loops between calls. Use an external scheduler (cron, systemd timer, k8s CronJob) that hits `/api/v1/csl/refresh`.
 - **Each WASI P2 incoming-handler call is a fresh component instance.** That means in-process state (signing key, cached search index, anything in `OnceCell`) doesn't survive between requests; it has to be persisted to disk or rebuilt each call. We persist the session signing key to `/data/session.key`; the search index is rebuilt per query (acceptable on the 10k-record fixture; M5 will look at amortizing it).
@@ -300,7 +300,7 @@ Production K8s deployment is out of scope for the demo. See [the wasmCloud Kuber
 - M2 ✅ — `storage-jsonfs` over `wasi:filesystem`: csl-records, audit, users (Argon2id-seeded), workflow. 17 unit tests + 8 API assertions; api-gateway exposes `/healthz`, `/api/v1/me`, `/api/v1/audit/_test`.
 - M3 ✅ — `csl-ingest` parser + 9-source-list fixture; `/api/v1/csl/{metadata,refresh,sources,entries/{id}}`. Refresh reads `/data/csl/seed.json` from the volume mount (real HTTP fetch is in caveats below).
 - M4 ✅ — Cookie-session auth (HMAC-SHA256, key persisted to `/data/session.key`), `/api/v1/{auth/{login,logout},me,search,search/autocomplete,audit,audit/{id},metrics}`. UUIDv7 audit IDs. 6 unit tests + 53 API assertions across the M0+M2+M3+M4 suite.
-- M5 — Hit workflow polish + screening conveniences.
+- M5 ✅ — `/screen/{ofac,pep}` with source-list scoping + scope-note in body; per-hit `citation` (source_meta agency_url) on `/search` + `/screen` responses; `/review/{audit_id}/decide` writes `WorkflowEntry` so `/audit/{id}` reflects the latest decision and full history. Total: 72 API assertions.
 - M6 — Static-assets component + SPA shell.
 - M7 — Search & dashboard pages.
 - M8 — Audit, review, admin pages.

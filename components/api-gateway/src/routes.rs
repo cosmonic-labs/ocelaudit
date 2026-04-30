@@ -2,7 +2,7 @@
 
 use ocelaudit_csl_ingest::{parse_external_json, source_meta};
 use ocelaudit_search::{EntityType, SearchParams, Tlp};
-use ocelaudit_storage_jsonfs::{Role, SearchEvent};
+use ocelaudit_storage_jsonfs::{Role, SearchEvent, WorkflowEntry};
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -75,20 +75,26 @@ fn dispatch_authed(
             csl_entry(app, id)
         }
 
-        (Method::Post, "/api/v1/search") => search(app, session, in_.body),
+        (Method::Post, "/api/v1/search") => search(app, session, in_.body, None, None),
         (Method::Get, "/api/v1/search/autocomplete") => {
             autocomplete(app, in_.query_string)
         }
 
-        // M2 leftovers — kept for now, deleted in M5 polish. Must come
-        // BEFORE the /api/v1/audit/{id} prefix match below.
-        (Method::Get, "/api/v1/audit/_test") => audit_test_get(app),
-        (Method::Post, "/api/v1/audit/_test") => audit_test_post(app),
+        (Method::Post, "/api/v1/screen/ofac") => screen_ofac(app, session, in_.body),
+        (Method::Post, "/api/v1/screen/pep") => screen_pep(app, session, in_.body),
 
         (Method::Get, "/api/v1/audit") => audit_list(app, in_.query_string),
         (Method::Get, p) if p.starts_with("/api/v1/audit/") => {
             audit_get(app, p.trim_start_matches("/api/v1/audit/"))
         }
+
+        (Method::Post, p) if p.starts_with("/api/v1/review/") && p.ends_with("/decide") => {
+            let id = p
+                .trim_start_matches("/api/v1/review/")
+                .trim_end_matches("/decide");
+            review_decide(app, session, id, in_.body)
+        }
+        (Method::Get, "/api/v1/review") => review_queue(app),
 
         (Method::Get, "/api/v1/metrics") => metrics(app),
 
@@ -279,10 +285,21 @@ struct SearchBody {
     limit: Option<u32>,
 }
 
+/// OFAC-issued lists per Treasury Department.
+const OFAC_SOURCES: &[&str] = &["SDN", "NS-MBS", "NS-ISA", "FSE", "SSI", "CAPTA", "PLC"];
+
+/// Best-effort PEP-style filter. The CSL is *not* a true PEP feed; the
+/// closest public-list signal is the Palestinian Legislative Council
+/// list, which is name-of-officials shaped. Honest disclosure shipped
+/// alongside the response.
+const PEP_SOURCES: &[&str] = &["PLC"];
+
 fn search(
     app: &AppState,
     session: &Session,
     body: Option<&[u8]>,
+    forced_sources: Option<Vec<String>>,
+    note: Option<&str>,
 ) -> RouteResponse {
     let body = match body {
         Some(b) if !b.is_empty() => b,
@@ -304,9 +321,10 @@ fn search(
             })
             .collect::<Vec<_>>()
     });
+    let sources = forced_sources.or(req.sources.clone());
     let params = SearchParams {
         q: req.q.clone(),
-        sources: req.sources.clone(),
+        sources,
         entity_types: etypes,
         fuzzy: req.fuzzy.unwrap_or(true),
         limit: req.limit.unwrap_or(20) as usize,
@@ -318,18 +336,10 @@ fn search(
     };
     let result = engine.search(&params);
 
-    // Generate a real audit-id (UUIDv7) and persist the event.
     let audit_id = Uuid::now_v7().to_string();
     let when = clocks::wall_clock::now().seconds;
     let top_ids: Vec<String> = result.hits.iter().take(5).map(|h| h.entry_id.clone()).collect();
-    let tlp_str = match result.tlp {
-        Tlp::Green => "green",
-        Tlp::Yellow => "yellow",
-        Tlp::Red => "red",
-    };
-    // M2 contract: audit row carries the workflow decision the API
-    // commits to. M8 will introduce review/decide; for M4, GREEN
-    // auto-clears, YELLOW + RED enter pending state.
+    let tlp_str = tlp_token(result.tlp);
     let decision = match result.tlp {
         Tlp::Green => "auto-green",
         Tlp::Yellow => "pending-review",
@@ -348,20 +358,79 @@ fn search(
         return RouteResponse::err(500, format!("audit_log: {}", e));
     }
 
-    RouteResponse::json(
-        200,
-        json!({
-            "audit_id": audit_id,
-            "tlp": tlp_str,
-            "decision": decision,
-            "hits": result.hits.iter().map(|h| json!({
+    let hits_json = result
+        .hits
+        .iter()
+        .map(|h| {
+            // Look up the entry's source code → citation.
+            let citation = match app.storage.csl_get(&h.entry_id) {
+                Ok(Some(entry)) => match source_meta::meta_for_code(&entry.source_list) {
+                    Some(m) => json!({
+                        "source_code": m.code,
+                        "long_name": m.long_name,
+                        "agency_url": m.agency_url,
+                    }),
+                    None => json!({"source_code": entry.source_list}),
+                },
+                _ => json!(null),
+            };
+            json!({
                 "entry_id": h.entry_id,
                 "score": h.score,
                 "tlp": tlp_token(h.tlp),
                 "matched_fields": h.matched_fields,
                 "snippet": h.snippet,
-            })).collect::<Vec<_>>(),
-        }),
+                "citation": citation,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let mut body_obj = json!({
+        "audit_id": audit_id,
+        "tlp": tlp_str,
+        "decision": decision,
+        "hits": hits_json,
+    });
+    if let Some(n) = note {
+        body_obj
+            .as_object_mut()
+            .unwrap()
+            .insert("note".into(), json!(n));
+    }
+    RouteResponse::json(200, body_obj)
+}
+
+fn screen_ofac(
+    app: &AppState,
+    session: &Session,
+    body: Option<&[u8]>,
+) -> RouteResponse {
+    let forced = OFAC_SOURCES.iter().map(|s| s.to_string()).collect();
+    search(
+        app,
+        session,
+        body,
+        Some(forced),
+        Some("Filter restricted to OFAC-issued source lists (SDN, NS-MBS, NS-ISA, FSE, SSI, CAPTA, PLC)."),
+    )
+}
+
+fn screen_pep(
+    app: &AppState,
+    session: &Session,
+    body: Option<&[u8]>,
+) -> RouteResponse {
+    let forced = PEP_SOURCES.iter().map(|s| s.to_string()).collect();
+    search(
+        app,
+        session,
+        body,
+        Some(forced),
+        Some(
+            "DISCLAIMER: this is not a true PEP feed. The CSL doesn't include PEP per se; \
+             we approximate by filtering to PLC (Palestinian Legislative Council) and \
+             other publicly-listed officials. Use a dedicated PEP database for compliance.",
+        ),
     )
 }
 
@@ -445,22 +514,33 @@ fn audit_get(app: &AppState, id: &str) -> RouteResponse {
     if id.is_empty() {
         return RouteResponse::err(400, "missing id");
     }
-    match app.storage.audit_get(id) {
-        Ok(Some(e)) => RouteResponse::json(
-            200,
-            json!({
-                "audit_id": e.audit_id,
-                "who": e.who,
-                "when": e.when,
-                "query": e.query,
-                "tlp": e.tlp,
-                "decision": e.decision,
-                "top_hit_ids": e.top_hit_ids,
-            }),
-        ),
-        Ok(None) => RouteResponse::err(404, format!("audit_id {} not found", id)),
-        Err(e) => RouteResponse::err(500, e.to_string()),
-    }
+    let event = match app.storage.audit_get(id) {
+        Ok(Some(e)) => e,
+        Ok(None) => return RouteResponse::err(404, format!("audit_id {} not found", id)),
+        Err(e) => return RouteResponse::err(500, e.to_string()),
+    };
+    // Workflow history. The current decision is either the latest
+    // workflow entry's decision, or the search event's auto-decision
+    // if no review has happened yet.
+    let history = app.storage.workflow_history(id).unwrap_or_default();
+    let current = history
+        .last()
+        .map(|h| h.decision.clone())
+        .unwrap_or_else(|| event.decision.clone());
+    RouteResponse::json(
+        200,
+        json!({
+            "audit_id": event.audit_id,
+            "who": event.who,
+            "when": event.when,
+            "query": event.query,
+            "tlp": event.tlp,
+            "top_hit_ids": event.top_hit_ids,
+            "decision": current,
+            "initial_decision": event.decision,
+            "history": history,
+        }),
+    )
 }
 
 fn parse_paging(query: Option<&str>) -> (usize, usize) {
@@ -532,29 +612,94 @@ fn metrics(app: &AppState) -> RouteResponse {
     )
 }
 
-// ---------- /api/v1/audit/_test (M2 leftover) ----------
+// ---------- /api/v1/review ----------
 
-fn audit_test_get(app: &AppState) -> RouteResponse {
-    match app.storage.audit_list_recent(10, 0) {
-        Ok(events) => RouteResponse::json(200, json!({"count": events.len(), "events": events})),
-        Err(e) => RouteResponse::err(500, e.to_string()),
-    }
+#[derive(Deserialize)]
+struct DecideBody {
+    decision: String,
+    #[serde(default)]
+    note: Option<String>,
 }
 
-fn audit_test_post(app: &AppState) -> RouteResponse {
-    let when = clocks::wall_clock::now().seconds;
-    let event_id = format!("debug-{}-{}", when, app.storage.root().display().to_string().len());
-    let event = SearchEvent {
-        audit_id: event_id.clone(),
-        who: "system".into(),
-        when,
-        query: "synthetic m2 debug write".into(),
-        tlp: "green".into(),
-        top_hit_ids: vec![],
-        decision: "auto-green".into(),
-    };
-    match app.storage.audit_log(&event) {
-        Ok(_) => RouteResponse::json(201, json!({"audit_id": event_id})),
-        Err(e) => RouteResponse::err(500, e.to_string()),
+fn review_decide(
+    app: &AppState,
+    session: &Session,
+    audit_id: &str,
+    body: Option<&[u8]>,
+) -> RouteResponse {
+    if audit_id.is_empty() {
+        return RouteResponse::err(400, "missing audit id in path");
     }
+    let body = match body {
+        Some(b) if !b.is_empty() => b,
+        _ => return RouteResponse::err(400, "missing JSON body"),
+    };
+    let req: DecideBody = match serde_json::from_slice(body) {
+        Ok(r) => r,
+        Err(e) => return RouteResponse::err(400, format!("bad JSON: {}", e)),
+    };
+    let decision = match req.decision.to_ascii_lowercase().as_str() {
+        "cleared" => "cleared",
+        "blocked" => "blocked",
+        other => {
+            return RouteResponse::err(
+                400,
+                format!("decision must be 'cleared' or 'blocked', got '{}'", other),
+            )
+        }
+    };
+    if app.storage.audit_get(audit_id).ok().flatten().is_none() {
+        return RouteResponse::err(404, format!("audit_id {} not found", audit_id));
+    }
+    let entry = WorkflowEntry {
+        audit_id: audit_id.into(),
+        decision: decision.into(),
+        decided_by: session.username.clone(),
+        decided_at: clocks::wall_clock::now().seconds,
+        note: req.note.clone(),
+    };
+    if let Err(e) = app.storage.workflow_log(&entry) {
+        return RouteResponse::err(500, format!("workflow_log: {}", e));
+    }
+    RouteResponse::json(
+        200,
+        json!({
+            "audit_id": audit_id,
+            "decision": decision,
+            "decided_by": entry.decided_by,
+            "decided_at": entry.decided_at,
+        }),
+    )
+}
+
+/// Queue of audit events still pending decision (decision starts with
+/// "pending-"). M8 builds the proper review UI on top of this; for M5
+/// we just expose the queue so scenarios can drive it.
+fn review_queue(app: &AppState) -> RouteResponse {
+    let recent = match app.storage.audit_list_recent(500, 0) {
+        Ok(r) => r,
+        Err(e) => return RouteResponse::err(500, e.to_string()),
+    };
+    let mut pending = Vec::new();
+    for ev in recent {
+        // If a review decision has been made, that wins.
+        let final_decision = app
+            .storage
+            .workflow_history(&ev.audit_id)
+            .ok()
+            .and_then(|h| h.last().map(|w| w.decision.clone()))
+            .unwrap_or(ev.decision.clone());
+        if final_decision.starts_with("pending-") {
+            pending.push(json!({
+                "audit_id": ev.audit_id,
+                "who": ev.who,
+                "when": ev.when,
+                "query": ev.query,
+                "tlp": ev.tlp,
+                "decision": final_decision,
+                "top_hit_ids": ev.top_hit_ids,
+            }));
+        }
+    }
+    RouteResponse::json(200, json!({"count": pending.len(), "items": pending}))
 }
