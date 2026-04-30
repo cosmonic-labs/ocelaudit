@@ -92,22 +92,33 @@ stop-dev: ## Stop a wash dev instance launched by tests/api/_runner.sh
 
 # ----- supply chain ----------------------------------------------------
 
-audit: build ## cargo audit on every built .wasm
-	@for c in $(COMPONENTS); do \
-	  artefact=$$(ls components/$$c/build/*.wasm 2>/dev/null | head -1); \
-	  if [ -n "$$artefact" ]; then \
-	    echo ">> cargo audit bin $$artefact"; \
-	    cargo audit bin "$$artefact"; \
-	  fi; \
-	done
+audit: build ## cargo audit on every built .wasm (skips if cargo-audit not installed)
+	@if ! command -v cargo-audit >/dev/null 2>&1; then \
+	  echo "  cargo-audit not installed; skipping. Install with \`cargo install cargo-audit --features=fix\`."; \
+	else \
+	  found=0; \
+	  for c in $(COMPONENTS); do \
+	    artefact="target/wasm32-wasip2/release/ocelaudit_$${c//-/_}.wasm"; \
+	    if [ -f "$$artefact" ]; then \
+	      echo ">> cargo audit bin $$artefact"; \
+	      cargo audit bin "$$artefact" || exit 1; \
+	      found=$$((found+1)); \
+	    fi; \
+	  done; \
+	  if [ "$$found" -eq 0 ]; then echo "  (no .wasm artefacts found to audit)"; fi; \
+	fi
 
-sbom: ## Generate CycloneDX SBOMs and merge into one document
+sbom: build ## Generate CycloneDX SBOMs (skips if cargo-cyclonedx not installed)
 	@mkdir -p .cache/sbom
-	@for c in $(COMPONENTS); do \
-	  echo ">> cyclonedx-rs components/$$c"; \
-	  (cd components/$$c && cargo cyclonedx --format json --output-pattern bom 2>/dev/null || true); \
-	done
-	@echo "SBOMs under components/*/bom.cdx.json (merge step lands in CI release flow)"
+	@if ! command -v cargo-cyclonedx >/dev/null 2>&1; then \
+	  echo "  cargo-cyclonedx not installed; skipping. Install with \`cargo install cargo-cyclonedx\`."; \
+	else \
+	  for c in $(COMPONENTS); do \
+	    echo ">> cargo cyclonedx components/$$c"; \
+	    (cd components/$$c && cargo cyclonedx --format json --output-pattern bom) || exit 1; \
+	  done; \
+	  echo "SBOMs under components/*/bom.cdx.json"; \
+	fi
 
 # ----- ergonomics ------------------------------------------------------
 
