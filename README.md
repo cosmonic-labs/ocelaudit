@@ -100,6 +100,113 @@ Trust-boundary diagram lands in M6 when the SPA appears.
 
 ---
 
+## Architectural pattern: hot-loading a component vs. running a service
+
+The single biggest learning of this demo isn't about screening — it's
+about wasmCloud's two workload models. Same machine, same 25,600-record
+live `data.trade.gov` corpus, same `Sberbank` search query:
+
+```
+M11  in-process engine, RefCell cache              ~5,036 ms / call
+M12  build_hit_snapshot routes through cached entries  ~1,180 ms / call
+M13  postcard disk cache (11 MB), hot-load per req       247 ms / call
+M14  TCP service holds engine in RAM                       5 ms / call
+```
+
+That's **1000×** between the first and last row, with no algorithmic
+change. The query is identical at every step — what changed is *where
+the prebuilt search index lives*.
+
+### Why "hot loading the component" doesn't work the way you'd want
+
+A wasmCloud `wasi:http/incoming-handler` component is *hot for the
+handler*, not for state. The runtime instantiates it on demand for
+each incoming request, runs `handle()` to completion, and tears it
+down. Anything you stash in `OnceCell` / `RefCell` / `thread_local!`
+inside the component **is freed when the request finishes**.
+
+That's what kept biting M11–M13:
+
+- **M11** did the obvious thing: build the search engine on first use
+  and cache it in `RefCell<Option<SearchEngine>>` inside the component.
+  It worked exactly once. Every subsequent call rebuilt from scratch.
+  The 5 s wasn't a bug — it was the architecture asking us to come up
+  with a different plan.
+- **M12** chipped away at the rebuild cost (engine `entry()` is now
+  O(1), so per-hit metadata lookup stopped re-parsing 31 MB of JSON
+  twenty times). That removed 4 s but kept the per-request engine
+  build.
+- **M13** moved the prebuilt engine to a postcard blob on disk. Reads
+  from `wasi:filesystem` are fast enough that hot-loading 11 MB takes
+  ~210 ms — much better, but still a per-request cost. We were
+  effectively round-tripping state through the disk because the
+  component layer wouldn't hold it for us.
+
+The whole time, the cost wasn't the *search* (consistently 1 ms) — it
+was the cost of *re-establishing the index in memory* on every call.
+
+### Why the service model collapses that to nothing
+
+The wasmCloud `wasi:cli/run` workload — what the `csl-service` crate
+exports — is the opposite shape. The runtime calls it once at startup
+and lets it run indefinitely, holding sockets, caches, and threads
+across requests. That's the natural home for an expensive-to-build
+search index.
+
+In M14 the search engine is built once when `csl-service` starts,
+stays in RAM for the lifetime of the host, and serves any number of
+queries over a loopback TCP connection. The per-request component
+keeps doing its job (HTTP framing, auth, audit-log writes) but no
+longer carries the corpus around with it. A `/api/v1/search` round-trip
+goes from "rebuild + search + log" to just "RPC + log":
+
+```
+ocelaudit: search timing: service_rpc=3 ms, audit_log=5 ms, total=8 ms · q='Sberbank' · hits=20
+```
+
+The 3 ms `service_rpc` is the round-trip over `127.0.0.1:7878` plus
+the JSON parse of one line. Search itself is 1 ms inside the service —
+the engine, after all, is exactly the same one we had in M11.
+
+### When you'd reach for which
+
+Both shapes are first-class in wasmCloud and the choice maps onto
+familiar systems trade-offs:
+
+- **Component / per-request** — for stateless work that benefits from
+  horizontal scaling and tear-down isolation. Auth checks, body
+  parsing, audit-log writes, response shaping. The api-gateway's
+  remaining responsibilities are all of this kind. New instances spin
+  up cheaply per request; if one panics, the rest of the host is
+  unaffected.
+- **Service / long-running** — for things that are expensive to
+  rebuild and benefit from being shared across requests: search
+  indexes, connection pools, caches, scheduled jobs. The `csl-service`
+  embodies all of that. The service is single-instance and a SPOF
+  (if it crashes, `/search` returns `503 csl-service: connect:
+  ConnectionRefused` until it's restarted), so anything you put here
+  trades horizontal scalability for the ability to keep state.
+
+The demo's split lands exactly on that line: stateless request
+processing in the component, stateful index in the service. Adding a
+second long-lived state — say, a real PEP feed cache or a session
+allowlist — would mean either extending `csl-service` or adding
+another service workload.
+
+### See it for yourself
+
+The `wash dev` stderr log carries timing lines that stay on through
+every milestone:
+
+```
+grep "search timing" .cache/wash-dev.log
+```
+
+Full benchmark methodology and per-row breakdown in
+[`docs/m14-tcp-service-benchmark.md`](docs/m14-tcp-service-benchmark.md).
+
+---
+
 ## Technology choices and rationale
 
 > **TODO (M1+):** rows fill in as the relevant components land.
