@@ -758,13 +758,39 @@ fn urldecode(s: &str) -> String {
 
 fn audit_list(app: &AppState, query: Option<&str>) -> RouteResponse {
     let (limit, offset) = parse_paging(query);
-    match app.storage.audit_list_recent(limit, offset) {
-        Ok(events) => RouteResponse::json(
-            200,
-            json!({"limit": limit, "offset": offset, "events": events}),
-        ),
-        Err(e) => RouteResponse::err(500, e.to_string()),
-    }
+    let events = match app.storage.audit_list_recent(limit, offset) {
+        Ok(e) => e,
+        Err(e) => return RouteResponse::err(500, e.to_string()),
+    };
+    // Overlay each event's *current* decision by consulting the workflow
+    // log. Without this, the list keeps showing "pending-review" even
+    // after compliance has decided. The detail endpoint already does
+    // this; list now matches.
+    let rows: Vec<serde_json::Value> = events
+        .into_iter()
+        .map(|ev| {
+            let history = app.storage.workflow_history(&ev.audit_id).unwrap_or_default();
+            let current = history
+                .last()
+                .map(|h| h.decision.clone())
+                .unwrap_or_else(|| ev.decision.clone());
+            json!({
+                "audit_id": ev.audit_id,
+                "who": ev.who,
+                "when": ev.when,
+                "query": ev.query,
+                "tlp": ev.tlp,
+                "top_hit_ids": ev.top_hit_ids,
+                "decision": current,
+                "initial_decision": ev.decision,
+                "source": ev.source,
+            })
+        })
+        .collect();
+    RouteResponse::json(
+        200,
+        json!({"limit": limit, "offset": offset, "events": rows}),
+    )
 }
 
 fn audit_get(app: &AppState, id: &str) -> RouteResponse {
@@ -897,13 +923,21 @@ fn review_decide(
         Ok(r) => r,
         Err(e) => return RouteResponse::err(400, format!("bad JSON: {}", e)),
     };
+    // Accept both legacy ("cleared"/"blocked") and the new
+    // post-review naming. Always persist as the new strings so the
+    // audit log's terminal states are clear: someone decided, and the
+    // outcome is visible at a glance via the green/red palette.
     let decision = match req.decision.to_ascii_lowercase().as_str() {
-        "cleared" => "cleared",
-        "blocked" => "blocked",
+        "cleared" | "approved" | "reviewed-approved" => "reviewed-approved",
+        "blocked" | "reviewed-blocked" => "reviewed-blocked",
         other => {
             return RouteResponse::err(
                 400,
-                format!("decision must be 'cleared' or 'blocked', got '{}'", other),
+                format!(
+                    "decision must be 'approved' (alias 'cleared') or \
+                     'blocked', got '{}'",
+                    other
+                ),
             )
         }
     };

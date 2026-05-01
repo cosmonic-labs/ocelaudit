@@ -4,7 +4,7 @@ import { Tag } from "../components/Tag";
 
 interface Toast {
   audit_id: string;
-  decision: "cleared" | "blocked";
+  decision: "approved" | "blocked";
   decided_by: string;
 }
 
@@ -30,7 +30,7 @@ export function ReviewPage() {
     void reload();
   }, [includeAuto]);
 
-  async function decide(audit_id: string, decision: "cleared" | "blocked") {
+  async function decide(audit_id: string, decision: "approved" | "blocked") {
     if (!note.trim()) {
       setError("a note is required when deciding.");
       return;
@@ -82,13 +82,14 @@ export function ReviewPage() {
       {toast && (
         <p
           class={`mb-4 rounded border px-3 py-2 text-sm ${
-            toast.decision === "cleared"
+            toast.decision === "approved"
               ? "border-tlp-green/40 bg-tlp-green/10 text-tlp-green"
               : "border-tlp-red/40 bg-tlp-red/10 text-tlp-red"
           }`}
         >
           ✓ <code class="rounded bg-white/40 px-1 dark:bg-black/30">{toast.audit_id.slice(0, 8)}…</code> marked{" "}
-          <strong>{toast.decision}</strong> by {toast.decided_by} — recorded in the audit log.
+          <strong>reviewed · {toast.decision === "approved" ? "approved" : "blocked"}</strong> by{" "}
+          {toast.decided_by} — recorded in the audit log.
         </p>
       )}
 
@@ -145,10 +146,10 @@ export function ReviewPage() {
                     <button
                       type="button"
                       disabled={busy || !note.trim()}
-                      onClick={() => decide(it.audit_id, "cleared")}
+                      onClick={() => decide(it.audit_id, "approved")}
                       class="rounded bg-tlp-green px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
                     >
-                      Clear
+                      Approve
                     </button>
                     <button
                       type="button"

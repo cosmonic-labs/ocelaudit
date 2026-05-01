@@ -48,12 +48,20 @@ export function decisionStyle(decision: string): DecisionStyle {
   switch (decision) {
     case "auto-green":
       return { ...GREEN, label: "auto-cleared" };
+    case "reviewed-approved":
+      return { ...GREEN, label: "reviewed · approved" };
+    // Legacy decisions from pre-M15 audit rows still render correctly.
     case "cleared":
-      return { ...GREEN, label: "cleared" };
+    case "approved":
+      return { ...GREEN, label: "approved" };
+
     case "auto-block":
       return { ...RED, label: "auto-blocked" };
+    case "reviewed-blocked":
+      return { ...RED, label: "reviewed · blocked" };
     case "blocked":
       return { ...RED, label: "blocked" };
+
     case "pending-block":
       return { ...RED, label: "pending block" };
     case "pending-review":

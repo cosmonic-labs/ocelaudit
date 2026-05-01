@@ -163,7 +163,11 @@ export const api = {
       "GET",
       opts?.includeAuto ? "/api/v1/review?include=auto" : "/api/v1/review",
     ),
-  reviewDecide: (auditId: string, decision: "cleared" | "blocked", note?: string) =>
+  reviewDecide: (
+    auditId: string,
+    decision: "approved" | "blocked",
+    note?: string,
+  ) =>
     call<{ audit_id: string; decision: string; decided_by: string; decided_at: number }>(
       "POST",
       `/api/v1/review/${encodeURIComponent(auditId)}/decide`,

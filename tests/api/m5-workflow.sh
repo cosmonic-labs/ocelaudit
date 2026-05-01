@@ -106,8 +106,8 @@ post=$(auth_curl "$BASE_URL/api/v1/audit/$pending_audit")
 post_decision=$(echo "$post" | jq -r '.decision')
 post_initial=$(echo "$post" | jq -r '.initial_decision')
 post_history_len=$(echo "$post" | jq '.history | length')
-if [ "$post_decision" = "blocked" ]; then _pass_msg "/audit post-review decision = blocked"
-else _fail_msg "/audit post-review" "got $post_decision"; fi
+if [ "$post_decision" = "reviewed-blocked" ]; then _pass_msg "/audit post-review decision = reviewed-blocked"
+else _fail_msg "/audit post-review" "expected reviewed-blocked, got $post_decision"; fi
 if [ "$post_initial" = "pending-block" ]; then _pass_msg "/audit initial_decision preserved"
 else _fail_msg "/audit initial_decision" "got $post_initial"; fi
 if [ "$post_history_len" = "1" ]; then _pass_msg "/audit history has 1 entry"
@@ -115,6 +115,24 @@ else _fail_msg "/audit history post-review" "got $post_history_len"; fi
 post_decided_by=$(echo "$post" | jq -r '.history[0].decided_by')
 if [ "$post_decided_by" = "compliance" ]; then _pass_msg "/audit history records decided_by=compliance"
 else _fail_msg "/audit decided_by" "got $post_decided_by"; fi
+
+# /audit (list) overlays workflow decisions so the table column flips
+# from pending-block to reviewed-blocked after the decide call. Pre-M15
+# the list endpoint kept showing pending-* even after review.
+list_row=$(auth_curl "$BASE_URL/api/v1/audit?limit=50" \
+  | jq -r ".events[] | select(.audit_id == \"$pending_audit\")")
+list_decision=$(echo "$list_row" | jq -r '.decision')
+list_initial=$(echo "$list_row" | jq -r '.initial_decision')
+if [ "$list_decision" = "reviewed-blocked" ]; then
+  _pass_msg "/audit list shows reviewed-blocked after review"
+else
+  _fail_msg "/audit list decision overlay" "expected reviewed-blocked, got $list_decision"
+fi
+if [ "$list_initial" = "pending-block" ]; then
+  _pass_msg "/audit list preserves initial_decision = pending-block"
+else
+  _fail_msg "/audit list initial_decision" "got $list_initial"
+fi
 
 # 5. YELLOW search → pending-review → cleared.
 yellow=$(auth_curl -H 'content-type: application/json' \
@@ -134,10 +152,10 @@ curl -sS -o /dev/null -b "$COOKIE_JAR" \
   --data '{"decision":"cleared","note":"different entity"}'
 yellow_post=$(auth_curl "$BASE_URL/api/v1/audit/$yellow_audit")
 yellow_post_decision=$(echo "$yellow_post" | jq -r '.decision')
-if [ "$yellow_post_decision" = "cleared" ]; then
-  _pass_msg "/audit/{yellow} post-cleared decision = cleared"
+if [ "$yellow_post_decision" = "reviewed-approved" ]; then
+  _pass_msg "/audit/{yellow} post-approved decision = reviewed-approved"
 else
-  _fail_msg "/audit/{yellow} post-cleared" "got $yellow_post_decision"
+  _fail_msg "/audit/{yellow} post-approved" "expected reviewed-approved, got $yellow_post_decision"
 fi
 
 # 6. /review queue includes only pending items. auto-block + auto-green
