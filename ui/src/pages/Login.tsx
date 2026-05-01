@@ -6,10 +6,16 @@ interface Props {
   onLogin: (u: { username: string; role: Role }) => void;
 }
 
+// Hero assets for the login background. The poster paints instantly so
+// users (especially on slow/mobile links) never see a black box while
+// the MP4 buffers; the video then takes over and loops muted in place.
+const HERO_POSTER = "/brand/ocelaudit-sun-skyscraper-poster.png";
+const HERO_VIDEO = "/video/OcelAudit-background-vid-720-4mbps.mp4";
+
 export function Login({ brand, onLogin }: Props) {
   const logo = brand?.logo_url ?? "/brand/ocelot.svg";
   const wordmark = brand?.wordmark ?? "OcelAudit";
-  const video = brand?.video_url ?? null;
+  const video = brand?.video_url ?? HERO_VIDEO;
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,19 +40,30 @@ export function Login({ brand, onLogin }: Props) {
   }
 
   return (
-    <main class="relative grid h-full place-items-center bg-ocelot-paper dark:bg-ocelot-ink">
+    <main class="relative grid h-full place-items-center overflow-hidden bg-ocelot-ink">
+      {/* Poster paints first; the video stacks on top and replaces it once buffered. */}
+      <div
+        aria-hidden="true"
+        class="pointer-events-none absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: `url(${HERO_POSTER})` }}
+      />
       {video && (
         <video
+          aria-hidden="true"
           autoplay
           muted
           loop
           playsInline
-          class="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-30 dark:opacity-20"
+          preload="auto"
+          poster={HERO_POSTER}
+          class="pointer-events-none absolute inset-0 h-full w-full object-cover"
         >
-          <source src={video} />
+          <source src={video} type="video/mp4" />
         </video>
       )}
-      <div class="relative w-full max-w-sm rounded-xl border border-neutral-200 bg-white/95 p-8 shadow-sm backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/95">
+      {/* CSS dim overlay so the form stays readable without re-encoding the video. */}
+      <div aria-hidden="true" class="pointer-events-none absolute inset-0 bg-black/55" />
+      <div class="relative z-10 w-full max-w-sm rounded-xl border border-neutral-200 bg-white/95 p-8 shadow-sm backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/95">
         <header class="mb-6 flex items-center gap-3">
           <img src={logo} alt="" class="h-10 w-10 text-ocelot-mark dark:text-ocelot-paper" />
           <div>

@@ -46,8 +46,6 @@ Cold-start budget: < 5 minutes from clean clone (per PLAN.md M10).
 
 ## Architecture overview
 
-> **TODO (M1+):** component-by-component descriptions land as each component lands. Today only `api-gateway` exists, and it's a hello-world.
-
 The end-state architecture (canonical ASCII diagram, kept in sync as components land):
 
 ```
