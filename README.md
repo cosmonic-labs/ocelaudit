@@ -435,11 +435,24 @@ CI runs `make build`, `make test-rust`, `make test-api`, `make test-ui`, `make a
 
 ## Deployment
 
-> **TODO (M10):** real deployment recipe lands with `make demo`.
+Local development uses `wash dev` against the workspace root, which spins up `csl-service` alongside `api-gateway` per `.wash/config.yaml`.
 
-Local development uses `wash dev` against a single component. Single-host wadm-driven deployment (`wadm.yaml`) lands in M2 alongside the storage-jsonfs binding. Backend swap examples (`wadm.sqlite.yaml`, `wadm.turso.yaml`) land in M11.
+For Cosmonic Control deployment, `deploy/control/ocelaudit.yaml` declares the same shape as a single `HTTPTrigger` (`control.cosmonic.io/v1alpha1`):
 
-Production K8s deployment is out of scope for the demo. See [the wasmCloud Kubernetes operator docs](https://wasmcloud.com/docs/kubernetes-operator/) for that path; this codebase has not been hardened for it.
+- `template.spec.components[0]` — the `api-gateway` component, fresh per request, exporting `wasi:http/incoming-handler`
+- `template.spec.service` — the `csl-service` long-lived TCP server, colocated on the same host so the loopback connection at `127.0.0.1:7878` works
+- `template.spec.volumes` + matching `volumeMounts` — an ephemeral volume mounted at `/data` in both pieces, so the storage-jsonfs backend can read/write `csl.json`, `users.json`, `audit.jsonl`, `workflow.jsonl`
+
+Apply with:
+
+```sh
+kubectl apply -f deploy/control/ocelaudit.yaml
+curl -H 'Host: ocelaudit.localhost.cosmonic.sh' http://<gateway-host>/
+```
+
+The `csl-service` image (`ghcr.io/cosmonic-labs/ocelaudit-csl-service`) needs to land in the release workflow's publish matrix alongside `api-gateway` so tagged releases pick up both pieces; today it's pushed manually. Tracked as a follow-up in the PR that introduced this manifest.
+
+Production K8s deployment beyond the demo is out of scope; this codebase has not been hardened for it.
 
 ---
 

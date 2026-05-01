@@ -1,0 +1,67 @@
+# Cosmonic Control HTTPTrigger for ocelaudit.
+#
+# Two-piece architecture (per .wash/config.yaml):
+#   - api-gateway   (component) — exports wasi:http/incoming-handler.
+#                                  Fresh per request. Calls the CSL search
+#                                  engine over loopback TCP at 127.0.0.1:7878.
+#   - csl-service   (service)   — exports wasi:cli/run. Long-lived TCP
+#                                  server holding the parsed CSL corpus +
+#                                  prebuilt search engine in RAM. Both
+#                                  pieces are colocated on a single host
+#                                  via template.spec.service so they share
+#                                  the loopback interface.
+#
+# Both pieces share /data via an ephemeral volume so the api-gateway can
+# write users.json / audit.jsonl / workflow.jsonl while the csl-service
+# can persist its parsed CSL snapshot. The volume's lifetime is the
+# workload's; sessions and audit log do not survive a host restart (per
+# the README's "demo, not a product" caveats).
+#
+# Outbound HTTP scoping: the api-gateway component fetches the live CSL
+# corpus from data.trade.gov via wasi:http/outgoing-handler. Restricted
+# via localResources.allowedHosts.
+#
+# Apply with:
+#   kubectl apply -f deploy/control/ocelaudit.yaml
+#
+# Reach the deployed app via the runtime gateway (matches ingress.host):
+#   curl -H 'Host: ocelaudit.localhost.cosmonic.sh' http://<gateway-host>/
+apiVersion: control.cosmonic.io/v1alpha1
+kind: HTTPTrigger
+metadata:
+  name: ocelaudit
+  namespace: cosmonic-system
+spec:
+  ingress:
+    host: ocelaudit.localhost.cosmonic.sh
+    paths:
+      - pathType: Prefix
+        path: /
+  timeout: 300s
+  replicas: 1
+  template:
+    spec:
+      hostInterfaces:
+        - namespace: wasi
+          package: logging
+          version: 0.1.0-draft
+          interfaces:
+            - logging
+      volumes:
+        - name: data
+          ephemeral: {}
+      service:
+        image: ghcr.io/cosmonic-labs/ocelaudit-csl-service:0.1.0
+        localResources:
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      components:
+        - name: api-gateway
+          image: ghcr.io/cosmonic-labs/ocelaudit:v0.14.0
+          localResources:
+            allowedHosts:
+              - "https://data.trade.gov"
+            volumeMounts:
+              - name: data
+                mountPath: /data
