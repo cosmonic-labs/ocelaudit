@@ -21,6 +21,8 @@ interface RefreshResult {
   version: string;
   source: string;
   warning?: string;
+  index_built_ms?: number | null;
+  index_error?: string;
 }
 
 function AdminBody() {
@@ -53,6 +55,8 @@ function AdminBody() {
         version: r.version,
         source: r.source,
         warning: r.warning,
+        index_built_ms: r.index_built_ms,
+        index_error: r.index_error,
       });
       await reload();
     } catch (e) {
@@ -105,7 +109,7 @@ function AdminBody() {
                 aria-hidden
               />
             )}
-            {busy ? "fetching from trade.gov…" : "Update CSL now"}
+            {busy ? "fetching + rebuilding index…" : "Update CSL now"}
           </button>
           <p class="text-xs text-neutral-500">
             Tries a live HTTPS pull from <code>data.trade.gov</code>; falls back to
@@ -124,10 +128,23 @@ function AdminBody() {
               {refreshResult.source === "trade.gov" ? "✓" : "⚠"} ingested{" "}
               <strong>{refreshResult.ingested.toLocaleString()}</strong> records from{" "}
               <code>{refreshResult.source}</code> (version {refreshResult.version}).
+              {typeof refreshResult.index_built_ms === "number" && (
+                <>
+                  {" "}
+                  Search index rebuilt in{" "}
+                  <strong>{refreshResult.index_built_ms.toLocaleString()} ms</strong> — first
+                  /search will land warm.
+                </>
+              )}
             </p>
             {refreshResult.warning && (
               <p class="rounded bg-neutral-200/60 px-3 py-2 text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
                 <strong>fallback note:</strong> {refreshResult.warning}
+              </p>
+            )}
+            {refreshResult.index_error && (
+              <p class="rounded bg-tlp-red/10 px-3 py-2 text-xs text-tlp-red">
+                <strong>index rebuild error:</strong> {refreshResult.index_error}
               </p>
             )}
           </div>

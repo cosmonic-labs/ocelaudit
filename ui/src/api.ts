@@ -176,6 +176,8 @@ export const api = {
       version: string;
       source: string;
       warning?: string;
+      index_built_ms?: number | null;
+      index_error?: string;
     }>("POST", "/api/v1/csl/refresh"),
   branding: async (): Promise<Branding> => {
     const r = await fetch("/api/v1/branding", { credentials: "include" });

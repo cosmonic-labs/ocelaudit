@@ -384,14 +384,47 @@ fn csl_refresh(app: &AppState, query: Option<&str>) -> RouteResponse {
         return RouteResponse::err(500, e.to_string());
     }
     app.invalidate_engine();
+
+    // Eagerly rebuild the search index right here, on the operator's
+    // refresh click, so the first user-facing /search lands on a warm
+    // cache instead of paying the ~1 s cold-build cost. The Admin UI
+    // already shows a spinner; this just lets that spinner cover the
+    // build, not the next person's search bar.
+    let t_index_start = monotonic_clock::now();
+    let mut index_built_ms: Option<u64> = None;
+    let mut index_error: Option<String> = None;
+    match app.ensure_engine() {
+        Ok(engine) => {
+            // Drop the borrow before computing elapsed.
+            let n = engine.len();
+            drop(engine);
+            let elapsed = (monotonic_clock::now() - t_index_start) / 1_000_000;
+            index_built_ms = Some(elapsed);
+            eprintln!(
+                "ocelaudit: post-refresh index rebuild: {} ms · n={}",
+                elapsed, n
+            );
+        }
+        Err(e) => {
+            index_error = Some(e.clone());
+            eprintln!("ocelaudit: post-refresh engine rebuild failed: {}", e);
+        }
+    }
+
     let mut body = json!({
         "ingested": count,
         "fetched_at": when,
         "version": version,
         "source": source,
+        "index_built_ms": index_built_ms,
     });
     if let Some(w) = warning {
         body.as_object_mut().unwrap().insert("warning".into(), json!(w));
+    }
+    if let Some(e) = index_error {
+        body.as_object_mut()
+            .unwrap()
+            .insert("index_error".into(), json!(e));
     }
     RouteResponse::json(200, body)
 }
