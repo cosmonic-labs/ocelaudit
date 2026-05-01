@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::model::{CslEntry, EntityType, Hit, Tlp};
 use crate::tlp::{band, TlpThresholds};
 use crate::tokenize::{normalize, tokenize, trigrams};
@@ -37,8 +39,13 @@ impl SearchParams {
 ///
 /// The index is built once via [`SearchEngine::build`]; queries are
 /// `&self`-immutable so the same engine can serve concurrent reads.
+#[derive(Serialize, Deserialize)]
 pub struct SearchEngine {
     entries: Vec<CslEntry>,
+    /// id → index into `entries`. O(1) entry lookup so the api-gateway
+    /// doesn't have to re-read 31 MB of csl.json from disk per hit when
+    /// building per-search snapshots.
+    by_id: HashMap<String, u32>,
     /// term -> sorted list of (doc_id, term-frequency-in-doc).
     inverted: HashMap<String, Vec<(u32, u32)>>,
     /// trigram -> set of doc ids that contain it.
@@ -142,8 +149,14 @@ impl SearchEngine {
             })
             .collect();
 
+        let mut by_id = HashMap::with_capacity(entries.len());
+        for (i, e) in entries.iter().enumerate() {
+            by_id.insert(e.id.clone(), i as u32);
+        }
+
         Self {
             entries,
+            by_id,
             inverted,
             trigram: trigram_flat,
             doc_lens,
@@ -163,7 +176,44 @@ impl SearchEngine {
     }
 
     pub fn entry(&self, id: &str) -> Option<&CslEntry> {
-        self.entries.iter().find(|e| e.id == id)
+        let idx = *self.by_id.get(id)?;
+        self.entries.get(idx as usize)
+    }
+
+    /// Serialize the entire prebuilt index to a postcard byte blob.
+    /// Used for the disk cache so subsequent gateway instances skip
+    /// the ~1 s rebuild cost.
+    ///
+    /// The blob is **not** a stable wire format — it's keyed to
+    /// `INDEX_FORMAT_VERSION`, and a stale version on disk is
+    /// treated as cache-miss by `load_from_bytes`.
+    pub fn serialize_to_bytes(&self) -> Result<Vec<u8>, postcard::Error> {
+        let mut out = Vec::with_capacity(8 * 1024 * 1024);
+        out.extend_from_slice(INDEX_MAGIC);
+        out.extend_from_slice(&INDEX_FORMAT_VERSION.to_le_bytes());
+        let body = postcard::to_allocvec(self)?;
+        out.extend_from_slice(&body);
+        Ok(out)
+    }
+
+    /// Inverse of `serialize_to_bytes`. Returns `Ok(None)` if the blob
+    /// is from an older format version (caller should rebuild). Returns
+    /// `Err` only on actual decode failure.
+    pub fn load_from_bytes(bytes: &[u8]) -> Result<Option<Self>, postcard::Error> {
+        if bytes.len() < INDEX_MAGIC.len() + 4 {
+            return Ok(None);
+        }
+        if &bytes[..INDEX_MAGIC.len()] != INDEX_MAGIC {
+            return Ok(None);
+        }
+        let mut version_bytes = [0u8; 4];
+        version_bytes.copy_from_slice(&bytes[INDEX_MAGIC.len()..INDEX_MAGIC.len() + 4]);
+        if u32::from_le_bytes(version_bytes) != INDEX_FORMAT_VERSION {
+            return Ok(None);
+        }
+        let body = &bytes[INDEX_MAGIC.len() + 4..];
+        let engine: SearchEngine = postcard::from_bytes(body)?;
+        Ok(Some(engine))
     }
 
     /// Run a query and return up to `params.limit` ranked hits.
@@ -369,6 +419,11 @@ impl SearchEngine {
         out
     }
 }
+
+/// Bumped whenever the on-disk index layout changes. Stale caches on
+/// disk are treated as cache-miss; the gateway rebuilds + overwrites.
+pub const INDEX_FORMAT_VERSION: u32 = 1;
+const INDEX_MAGIC: &[u8] = b"OcelAuditIDX";
 
 #[derive(Debug, Clone)]
 pub struct SearchResult {

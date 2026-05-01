@@ -15,10 +15,11 @@ export function ReviewPage() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [includeAuto, setIncludeAuto] = useState(false);
 
   async function reload() {
     try {
-      const r = await api.reviewQueue();
+      const r = await api.reviewQueue({ includeAuto });
       setItems(r.items);
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -27,7 +28,7 @@ export function ReviewPage() {
 
   useEffect(() => {
     void reload();
-  }, []);
+  }, [includeAuto]);
 
   async function decide(audit_id: string, decision: "cleared" | "blocked") {
     if (!note.trim()) {
@@ -53,10 +54,24 @@ export function ReviewPage() {
 
   return (
     <div>
-      <header class="mb-6 flex items-baseline justify-between">
+      <header class="mb-2 flex items-baseline justify-between">
         <h1 class="font-display text-2xl">Review queue</h1>
-        <p class="text-sm text-neutral-500">{items?.length ?? "…"} pending</p>
+        <p class="text-sm text-neutral-500">{items?.length ?? "…"} shown</p>
       </header>
+      <p class="mb-4 max-w-3xl text-xs text-neutral-500">
+        Default: <strong>pending-review</strong> (yellow) and <strong>pending-block</strong> (red,
+        high-similarity but not exact). Items that hit <strong>auto-block</strong> — exact
+        name/alias matches — are auto-decided and don't enter the queue. Toggle
+        below to spot-check them anyway.
+      </p>
+      <label class="mb-4 inline-flex cursor-pointer items-center gap-2 text-xs text-neutral-700 dark:text-neutral-300">
+        <input
+          type="checkbox"
+          checked={includeAuto}
+          onChange={(e) => setIncludeAuto((e.currentTarget as HTMLInputElement).checked)}
+        />
+        also show <code class="rounded bg-neutral-100 px-1 dark:bg-neutral-800">auto-block</code> items
+      </label>
 
       {error && (
         <p class="mb-4 rounded border border-tlp-red/40 bg-tlp-red/10 px-3 py-2 text-sm text-tlp-red">

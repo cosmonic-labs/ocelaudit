@@ -158,7 +158,11 @@ export const api = {
   auditList: (limit = 50, offset = 0) =>
     call<AuditList>("GET", `/api/v1/audit?limit=${limit}&offset=${offset}`),
   auditGet: (id: string) => call<AuditEvent>("GET", `/api/v1/audit/${encodeURIComponent(id)}`),
-  reviewQueue: () => call<ReviewQueue>("GET", "/api/v1/review"),
+  reviewQueue: (opts?: { includeAuto?: boolean }) =>
+    call<ReviewQueue>(
+      "GET",
+      opts?.includeAuto ? "/api/v1/review?include=auto" : "/api/v1/review",
+    ),
   reviewDecide: (auditId: string, decision: "cleared" | "blocked", note?: string) =>
     call<{ audit_id: string; decision: string; decided_by: string; decided_at: number }>(
       "POST",

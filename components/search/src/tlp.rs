@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::model::Tlp;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct TlpThresholds {
     pub red: f32,
     pub yellow: f32,

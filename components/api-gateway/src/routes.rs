@@ -13,8 +13,15 @@ use crate::auth::{clear_cookie, extract_session_cookie, set_cookie, Session};
 use crate::state::AppState;
 use crate::static_assets;
 use crate::wasi::clocks;
+use crate::wasi::clocks::monotonic_clock;
 use crate::wasi::http::types::Method;
 use crate::RouteResponse;
+
+/// Returns a label-with-elapsed-ms that can be eprintln!'d for
+/// quick stderr timing. Single-threaded wasm; no need for syncing.
+fn ms_since(start_ns: u64) -> u64 {
+    (monotonic_clock::now() - start_ns) / 1_000_000
+}
 
 const CSL_SEED_PATH: &str = "/data/csl/seed.json";
 
@@ -115,7 +122,7 @@ fn dispatch_authed(
                 .trim_end_matches("/decide");
             review_decide(app, session, id, in_.body)
         }
-        (Method::Get, "/api/v1/review") => review_queue(app),
+        (Method::Get, "/api/v1/review") => review_queue(app, in_.query_string),
 
         (Method::Get, "/api/v1/metrics") => metrics(app),
 
@@ -506,11 +513,14 @@ fn search(
         limit: req.limit.unwrap_or(20) as usize,
     };
 
+    let t_start = monotonic_clock::now();
     let engine = match app.ensure_engine() {
         Ok(e) => e,
         Err(e) => return RouteResponse::err(500, e),
     };
+    let t_engine_ready = monotonic_clock::now();
     let result = engine.search(&params);
+    let t_search_done = monotonic_clock::now();
 
     let audit_id = Uuid::now_v7().to_string();
     let when = clocks::wall_clock::now().seconds;
@@ -533,8 +543,9 @@ fn search(
     let snapshots: Vec<HitSnapshot> = result
         .hits
         .iter()
-        .map(|h| build_hit_snapshot(app, h))
+        .map(|h| build_hit_snapshot(&engine, h))
         .collect();
+    let t_snapshots = monotonic_clock::now();
 
     let event = SearchEvent {
         audit_id: audit_id.clone(),
@@ -550,8 +561,19 @@ fn search(
     if let Err(e) = app.storage.audit_log(&event) {
         return RouteResponse::err(500, format!("audit_log: {}", e));
     }
+    let t_audit_logged = monotonic_clock::now();
 
     let hits_json: Vec<_> = snapshots.iter().map(snapshot_to_json).collect();
+    eprintln!(
+        "ocelaudit: search timing: engine={} ms, search={} ms, snapshot={} ms, audit_log={} ms, total_so_far={} ms · q='{}' · hits={}",
+        ms_since(t_start) - ms_since(t_engine_ready),
+        ms_since(t_engine_ready) - ms_since(t_search_done),
+        ms_since(t_search_done) - ms_since(t_snapshots),
+        ms_since(t_snapshots) - ms_since(t_audit_logged),
+        ms_since(t_start),
+        params.q,
+        result.hits.len(),
+    );
 
     let mut body_obj = json!({
         "audit_id": audit_id,
@@ -626,18 +648,20 @@ fn entity_type_token(t: EntityType) -> &'static str {
 
 /// Build the per-hit snapshot we surface to clients and persist into
 /// the audit row. Pulls the entry's source_list / entity_type /
-/// programs / nationalities so the review UI can render tags without
-/// a second round-trip per hit.
-fn build_hit_snapshot(app: &AppState, h: &ocelaudit_search::Hit) -> HitSnapshot {
-    let entry: Option<CslEntry> = app.storage.csl_get(&h.entry_id).ok().flatten();
-    let citation = entry.as_ref().and_then(|e| {
+/// programs / nationalities from the in-memory engine — going through
+/// `storage.csl_get` here means re-reading + re-parsing 31 MB of
+/// csl.json per hit, which made each /search take ~5 s. Engine
+/// lookup is O(1) via the by-id index.
+fn build_hit_snapshot(engine: &ocelaudit_search::SearchEngine, h: &ocelaudit_search::Hit) -> HitSnapshot {
+    let entry: Option<&CslEntry> = engine.entry(&h.entry_id);
+    let citation = entry.and_then(|e| {
         source_meta::meta_for_code(&e.source_list).map(|m| HitCitation {
             source_code: m.code.into(),
             long_name: m.long_name.into(),
             agency_url: m.agency_url.into(),
         })
     });
-    let tags = match &entry {
+    let tags = match entry {
         Some(e) => HitTags {
             source_list: e.source_list.clone(),
             entity_type: entity_type_token(e.entity_type).into(),
@@ -914,10 +938,17 @@ fn review_decide(
     )
 }
 
-/// Queue of audit events still pending decision (decision starts with
-/// "pending-"). M8 builds the proper review UI on top of this; for M5
-/// we just expose the queue so scenarios can drive it.
-fn review_queue(app: &AppState) -> RouteResponse {
+/// Queue of audit events still pending decision. By default only
+/// items whose final decision is `pending-review` or `pending-block`
+/// (i.e. they need human attention). Pass `?include=auto` to also
+/// include `auto-block` items (exact-match RED hits that were
+/// already decided automatically — useful for spot-checking that
+/// the right entities are being auto-decided).
+fn review_queue(app: &AppState, query: Option<&str>) -> RouteResponse {
+    let include_auto = query
+        .map(|q| q.split('&').any(|kv| kv == "include=auto" || kv == "include=auto-block"))
+        .unwrap_or(false);
+
     let recent = match app.storage.audit_list_recent(500, 0) {
         Ok(r) => r,
         Err(e) => return RouteResponse::err(500, e.to_string()),
@@ -931,7 +962,9 @@ fn review_queue(app: &AppState) -> RouteResponse {
             .ok()
             .and_then(|h| h.last().map(|w| w.decision.clone()))
             .unwrap_or(ev.decision.clone());
-        if final_decision.starts_with("pending-") {
+        let in_queue = final_decision.starts_with("pending-")
+            || (include_auto && final_decision == "auto-block");
+        if in_queue {
             pending.push(json!({
                 "audit_id": ev.audit_id,
                 "who": ev.who,
