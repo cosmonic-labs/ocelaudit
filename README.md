@@ -13,6 +13,10 @@
 
 OcelAudit is a CNCF wasmCloud v2 demonstration that screens entities (people, organizations, vessels, aircraft) against the U.S. Consolidated Screening List published by the International Trade Administration. Backend is a set of Rust WebAssembly components glued together via WASI P2 interfaces; frontend is a static SPA served by the same wasmCloud host.
 
+## Demonstration Video
+
+![OcelAudit - Know Your Customer (KYC) Compliance Screening Tool](./OcelAudit-KYC-compliance-screening-demo-optimized.gif)
+
 **This is a demo, not a product.** Specifically:
 - No HTTPS termination — wasmCloud serves plain HTTP. Put a reverse proxy in front for any real deployment.
 - Demo authentication only — two seeded users with **fixed default passwords**: `admin/OcelAudit` and `compliance/OcelAudit`. Argon2id-hashed at rest; the seed values are constants in `components/storage-jsonfs/src/lib.rs`. Rotate before any real deployment. No OAuth, no SSO.
