@@ -180,6 +180,12 @@ impl SearchEngine {
         self.entries.get(idx as usize)
     }
 
+    /// Iterator over the corpus. Used by the CSL service to build
+    /// `/api/v1/csl/stats` aggregates without re-reading the JSON.
+    pub fn entries(&self) -> &[CslEntry] {
+        &self.entries
+    }
+
     /// Serialize the entire prebuilt index to a postcard byte blob.
     /// Used for the disk cache so subsequent gateway instances skip
     /// the ~1 s rebuild cost.

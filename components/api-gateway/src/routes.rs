@@ -1,10 +1,12 @@
 //! Request routing for the gateway.
 
 use ocelaudit_csl_ingest::{parse_external_json, source_meta};
-use ocelaudit_search::{CslEntry, EntityType, SearchParams, Tlp};
+use ocelaudit_search::{CslEntry, EntityType, Tlp};
 use ocelaudit_storage_jsonfs::{
     HitCitation, HitSnapshot, HitTags, Role, SearchEvent, WorkflowEntry,
 };
+
+use crate::csl_client::{self, Op, SearchOp};
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -17,11 +19,6 @@ use crate::wasi::clocks::monotonic_clock;
 use crate::wasi::http::types::Method;
 use crate::RouteResponse;
 
-/// Returns a label-with-elapsed-ms that can be eprintln!'d for
-/// quick stderr timing. Single-threaded wasm; no need for syncing.
-fn ms_since(start_ns: u64) -> u64 {
-    (monotonic_clock::now() - start_ns) / 1_000_000
-}
 
 const CSL_SEED_PATH: &str = "/data/csl/seed.json";
 
@@ -223,86 +220,50 @@ fn csl_metadata(app: &AppState) -> RouteResponse {
 }
 
 fn csl_stats(app: &AppState) -> RouteResponse {
-    let metadata = match app.storage.csl_metadata() {
-        Ok(m) => m,
-        Err(e) => return RouteResponse::err(500, e.to_string()),
+    // Stats come from the long-lived service so we don't have to scan
+    // the on-disk JSON. Fetched_at + version still come from
+    // storage.csl_metadata since the service holds in-memory state
+    // only and doesn't track those fields itself.
+    let stats = match csl_client::call(Op::Stats) {
+        Ok(v) => v,
+        Err(e) => return RouteResponse::err(503, format!("csl-service: {}", e)),
     };
-    let entries = match app.storage.csl_list_all() {
-        Ok(e) => e,
-        Err(e) => return RouteResponse::err(500, e.to_string()),
-    };
-
-    // Aggregate per-source (with agency URLs), per-entity-type, top
-    // programs, top nationalities. Single linear scan over the corpus.
-    use std::collections::BTreeMap;
-    let mut by_source: BTreeMap<String, u32> = BTreeMap::new();
-    let mut by_entity: BTreeMap<&'static str, u32> = BTreeMap::new();
-    let mut by_program: BTreeMap<String, u32> = BTreeMap::new();
-    let mut by_nationality: BTreeMap<String, u32> = BTreeMap::new();
-    let mut with_addresses = 0u32;
-    let mut with_aliases = 0u32;
-    for e in &entries {
-        *by_source.entry(e.source_list.clone()).or_insert(0) += 1;
-        *by_entity.entry(entity_type_token(e.entity_type)).or_insert(0) += 1;
-        for p in &e.programs {
-            if !p.is_empty() {
-                *by_program.entry(p.clone()).or_insert(0) += 1;
+    let metadata = app.storage.csl_metadata().ok().flatten();
+    let mut by_source = stats.get("by_source").cloned().unwrap_or(json!([]));
+    if let Some(arr) = by_source.as_array_mut() {
+        for item in arr.iter_mut() {
+            if let Some(obj) = item.as_object_mut() {
+                let code = obj.get("code").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if let Some(meta) = source_meta::meta_for_code(&code) {
+                    obj.insert("long_name".into(), json!(meta.long_name));
+                    obj.insert("agency_url".into(), json!(meta.agency_url));
+                } else {
+                    obj.insert("long_name".into(), json!(null));
+                    obj.insert("agency_url".into(), json!(null));
+                }
             }
-        }
-        for n in &e.nationalities {
-            if !n.is_empty() {
-                *by_nationality.entry(n.clone()).or_insert(0) += 1;
-            }
-        }
-        if !e.addresses.is_empty() {
-            with_addresses += 1;
-        }
-        if !e.aliases.is_empty() {
-            with_aliases += 1;
         }
     }
-
-    let by_source_json: Vec<_> = by_source
-        .iter()
-        .map(|(code, count)| {
-            let meta = source_meta::meta_for_code(code);
-            json!({
-                "code": code,
-                "count": count,
-                "long_name": meta.map(|m| m.long_name),
-                "agency_url": meta.map(|m| m.agency_url),
-            })
-        })
-        .collect();
-    let by_entity_json: Vec<_> = by_entity
-        .iter()
-        .map(|(k, v)| json!({"entity_type": k, "count": v}))
-        .collect();
-    // Top 25 programs / nationalities by frequency.
-    let mut programs_sorted: Vec<_> = by_program.into_iter().collect();
-    programs_sorted.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    programs_sorted.truncate(25);
-    let mut nationalities_sorted: Vec<_> = by_nationality.into_iter().collect();
-    nationalities_sorted.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    nationalities_sorted.truncate(25);
-
-    let (count, fetched_at, version) = match metadata {
-        Some(m) => (m.count, Some(m.fetched_at), Some(m.version)),
-        None => (0, None, None),
+    let count = stats
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let (fetched_at, version) = match metadata {
+        Some(m) => (Some(m.fetched_at), Some(m.version)),
+        None => (None, None),
     };
-
     RouteResponse::json(
         200,
         json!({
             "count": count,
             "fetched_at": fetched_at,
             "version": version,
-            "by_source": by_source_json,
-            "by_entity_type": by_entity_json,
-            "top_programs": programs_sorted.iter().map(|(name, count)| json!({"name": name, "count": count})).collect::<Vec<_>>(),
-            "top_nationalities": nationalities_sorted.iter().map(|(name, count)| json!({"name": name, "count": count})).collect::<Vec<_>>(),
-            "with_addresses": with_addresses,
-            "with_aliases": with_aliases,
+            "by_source": by_source,
+            "by_entity_type": stats.get("by_entity_type").cloned().unwrap_or(json!([])),
+            "top_programs": stats.get("top_programs").cloned().unwrap_or(json!([])),
+            "top_nationalities": stats.get("top_nationalities").cloned().unwrap_or(json!([])),
+            "with_addresses": stats.get("with_addresses").cloned().unwrap_or(json!(0)),
+            "with_aliases": stats.get("with_aliases").cloned().unwrap_or(json!(0)),
         }),
     )
 }
@@ -383,31 +344,27 @@ fn csl_refresh(app: &AppState, query: Option<&str>) -> RouteResponse {
     {
         return RouteResponse::err(500, e.to_string());
     }
-    app.invalidate_engine();
 
-    // Eagerly rebuild the search index right here, on the operator's
-    // refresh click, so the first user-facing /search lands on a warm
-    // cache instead of paying the ~1 s cold-build cost. The Admin UI
-    // already shows a spinner; this just lets that spinner cover the
-    // build, not the next person's search bar.
+    // Tell the long-running CSL service to re-read /data/csl.json and
+    // rebuild its in-memory index. Synchronous so the operator's
+    // spinner covers the rebuild — the next user-facing /search
+    // doesn't pay the cold-build cost.
     let t_index_start = monotonic_clock::now();
     let mut index_built_ms: Option<u64> = None;
     let mut index_error: Option<String> = None;
-    match app.ensure_engine() {
-        Ok(engine) => {
-            // Drop the borrow before computing elapsed.
-            let n = engine.len();
-            drop(engine);
+    match csl_client::call(Op::Refresh) {
+        Ok(v) => {
             let elapsed = (monotonic_clock::now() - t_index_start) / 1_000_000;
             index_built_ms = Some(elapsed);
+            let n = v.get("n").and_then(|x| x.as_u64()).unwrap_or(0);
             eprintln!(
-                "ocelaudit: post-refresh index rebuild: {} ms · n={}",
+                "ocelaudit: post-refresh service rebuild: {} ms · n={}",
                 elapsed, n
             );
         }
         Err(e) => {
             index_error = Some(e.clone());
-            eprintln!("ocelaudit: post-refresh engine rebuild failed: {}", e);
+            eprintln!("ocelaudit: post-refresh service rebuild failed: {}", e);
         }
     }
 
@@ -525,66 +482,58 @@ fn search(
         Ok(r) => r,
         Err(e) => return RouteResponse::err(400, format!("bad JSON: {}", e)),
     };
-    let etypes = req.entity_types.as_ref().map(|v| {
-        v.iter()
-            .filter_map(|s| match s.to_ascii_lowercase().as_str() {
-                "individual" => Some(EntityType::Individual),
-                "entity" => Some(EntityType::Entity),
-                "vessel" => Some(EntityType::Vessel),
-                "aircraft" => Some(EntityType::Aircraft),
-                "unknown" => Some(EntityType::Unknown),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    });
-    let sources = forced_sources.or(req.sources.clone());
-    let params = SearchParams {
-        q: req.q.clone(),
-        sources,
-        entity_types: etypes,
-        fuzzy: req.fuzzy.unwrap_or(true),
-        limit: req.limit.unwrap_or(20) as usize,
-    };
+    let merged_sources = forced_sources.or(req.sources.clone());
+    let q = req.q.clone();
+    let limit = req.limit.unwrap_or(20);
 
+    // Forward the search to the long-running CSL service. Loopback TCP,
+    // line-delimited JSON. The service holds the parsed corpus + the
+    // prebuilt index in RAM so the round-trip is single-digit ms.
     let t_start = monotonic_clock::now();
-    let engine = match app.ensure_engine() {
-        Ok(e) => e,
-        Err(e) => return RouteResponse::err(500, e),
+    let resp = match csl_client::call(Op::Search(SearchOp {
+        q: &q,
+        sources: merged_sources.as_deref(),
+        entity_types: req.entity_types.as_deref(),
+        fuzzy: req.fuzzy,
+        limit: Some(limit),
+    })) {
+        Ok(v) => v,
+        Err(e) => return RouteResponse::err(503, format!("csl-service: {}", e)),
     };
-    let t_engine_ready = monotonic_clock::now();
-    let result = engine.search(&params);
-    let t_search_done = monotonic_clock::now();
+    let t_service_done = monotonic_clock::now();
 
-    let audit_id = Uuid::now_v7().to_string();
-    let when = clocks::wall_clock::now().seconds;
-    let top_ids: Vec<String> = result.hits.iter().take(5).map(|h| h.entry_id.clone()).collect();
-    let tlp_str = tlp_token(result.tlp);
-    // RED with an exact name/alias match goes auto-block (no review
-    // needed — the entity is on the list verbatim). RED with high
-    // similarity but not exact stays pending-block (compliance reviews).
-    // YELLOW always pending-review. GREEN auto-clears.
-    let decision = match result.tlp {
-        Tlp::Green => "auto-green",
-        Tlp::Yellow => "pending-review",
-        Tlp::Red if result.exact_alias_match => "auto-block",
-        Tlp::Red => "pending-block",
+    let svc: ServiceSearchResponse = match serde_json::from_value(resp) {
+        Ok(s) => s,
+        Err(e) => return RouteResponse::err(502, format!("decode csl-service response: {}", e)),
     };
-    // Snapshot the top-K hits with their entry-level metadata. This is
-    // both what we serialize to the response AND what we persist to
-    // audit so the review UI later can show reviewers exactly what the
-    // engine returned at search time.
-    let snapshots: Vec<HitSnapshot> = result
+    let snapshots: Vec<HitSnapshot> = svc
         .hits
         .iter()
-        .map(|h| build_hit_snapshot(&engine, h))
+        .map(service_hit_to_snapshot)
         .collect();
-    let t_snapshots = monotonic_clock::now();
+
+    let result_tlp = parse_tlp(&svc.tlp);
+    let exact_alias_match = svc.exact_alias_match;
+    let audit_id = Uuid::now_v7().to_string();
+    let when = clocks::wall_clock::now().seconds;
+    let top_ids: Vec<String> = snapshots.iter().take(5).map(|s| s.entry_id.clone()).collect();
+    let tlp_str = match result_tlp {
+        Tlp::Green => "green",
+        Tlp::Yellow => "yellow",
+        Tlp::Red => "red",
+    };
+    let decision = match result_tlp {
+        Tlp::Green => "auto-green",
+        Tlp::Yellow => "pending-review",
+        Tlp::Red if exact_alias_match => "auto-block",
+        Tlp::Red => "pending-block",
+    };
 
     let event = SearchEvent {
         audit_id: audit_id.clone(),
         who: session.username.clone(),
         when,
-        query: params.q.clone(),
+        query: q.clone(),
         tlp: tlp_str.into(),
         top_hit_ids: top_ids.clone(),
         decision: decision.into(),
@@ -598,14 +547,12 @@ fn search(
 
     let hits_json: Vec<_> = snapshots.iter().map(snapshot_to_json).collect();
     eprintln!(
-        "ocelaudit: search timing: engine={} ms, search={} ms, snapshot={} ms, audit_log={} ms, total_so_far={} ms · q='{}' · hits={}",
-        ms_since(t_start) - ms_since(t_engine_ready),
-        ms_since(t_engine_ready) - ms_since(t_search_done),
-        ms_since(t_search_done) - ms_since(t_snapshots),
-        ms_since(t_snapshots) - ms_since(t_audit_logged),
-        ms_since(t_start),
-        params.q,
-        result.hits.len(),
+        "ocelaudit: search timing: service_rpc={} ms, audit_log={} ms, total={} ms · q='{}' · hits={}",
+        (t_service_done - t_start) / 1_000_000,
+        (t_audit_logged - t_service_done) / 1_000_000,
+        (t_audit_logged - t_start) / 1_000_000,
+        q,
+        snapshots.len(),
     );
 
     let mut body_obj = json!({
@@ -661,40 +608,40 @@ fn screen_pep(
     )
 }
 
-fn tlp_token(t: Tlp) -> &'static str {
-    match t {
-        Tlp::Green => "green",
-        Tlp::Yellow => "yellow",
-        Tlp::Red => "red",
+fn parse_tlp(s: &str) -> Tlp {
+    match s {
+        "red" => Tlp::Red,
+        "yellow" => Tlp::Yellow,
+        _ => Tlp::Green,
     }
 }
 
-fn entity_type_token(t: EntityType) -> &'static str {
-    match t {
-        EntityType::Individual => "individual",
-        EntityType::Entity => "entity",
-        EntityType::Vessel => "vessel",
-        EntityType::Aircraft => "aircraft",
-        EntityType::Unknown => "unknown",
-    }
+#[derive(serde::Deserialize)]
+struct ServiceSearchResponse {
+    tlp: String,
+    exact_alias_match: bool,
+    hits: Vec<ServiceHit>,
 }
 
-/// Build the per-hit snapshot we surface to clients and persist into
-/// the audit row. Pulls the entry's source_list / entity_type /
-/// programs / nationalities from the in-memory engine — going through
-/// `storage.csl_get` here means re-reading + re-parsing 31 MB of
-/// csl.json per hit, which made each /search take ~5 s. Engine
-/// lookup is O(1) via the by-id index.
-fn build_hit_snapshot(engine: &ocelaudit_search::SearchEngine, h: &ocelaudit_search::Hit) -> HitSnapshot {
-    let entry: Option<&CslEntry> = engine.entry(&h.entry_id);
-    let citation = entry.and_then(|e| {
+#[derive(serde::Deserialize)]
+struct ServiceHit {
+    entry_id: String,
+    score: f32,
+    tlp: String,
+    matched_fields: Vec<String>,
+    snippet: String,
+    entry: Option<CslEntry>,
+}
+
+fn service_hit_to_snapshot(h: &ServiceHit) -> HitSnapshot {
+    let citation = h.entry.as_ref().and_then(|e| {
         source_meta::meta_for_code(&e.source_list).map(|m| HitCitation {
             source_code: m.code.into(),
             long_name: m.long_name.into(),
             agency_url: m.agency_url.into(),
         })
     });
-    let tags = match entry {
+    let tags = match &h.entry {
         Some(e) => HitTags {
             source_list: e.source_list.clone(),
             entity_type: entity_type_token(e.entity_type).into(),
@@ -706,11 +653,21 @@ fn build_hit_snapshot(engine: &ocelaudit_search::SearchEngine, h: &ocelaudit_sea
     HitSnapshot {
         entry_id: h.entry_id.clone(),
         score: h.score,
-        tlp: tlp_token(h.tlp).into(),
+        tlp: h.tlp.clone(),
         matched_fields: h.matched_fields.clone(),
         snippet: h.snippet.clone(),
         citation,
         tags,
+    }
+}
+
+fn entity_type_token(t: EntityType) -> &'static str {
+    match t {
+        EntityType::Individual => "individual",
+        EntityType::Entity => "entity",
+        EntityType::Vessel => "vessel",
+        EntityType::Aircraft => "aircraft",
+        EntityType::Unknown => "unknown",
     }
 }
 
@@ -739,7 +696,7 @@ fn snapshot_to_json(s: &HitSnapshot) -> serde_json::Value {
     })
 }
 
-fn autocomplete(app: &AppState, query: Option<&str>) -> RouteResponse {
+fn autocomplete(_app: &AppState, query: Option<&str>) -> RouteResponse {
     let prefix = query
         .and_then(|q| {
             q.split('&')
@@ -750,12 +707,15 @@ fn autocomplete(app: &AppState, query: Option<&str>) -> RouteResponse {
     if prefix.is_empty() {
         return RouteResponse::json(200, json!([]));
     }
-    let engine = match app.ensure_engine() {
-        Ok(e) => e,
-        Err(e) => return RouteResponse::err(500, e),
+    let resp = match csl_client::call(Op::Autocomplete {
+        prefix: &prefix,
+        limit: Some(8),
+    }) {
+        Ok(v) => v,
+        Err(e) => return RouteResponse::err(503, format!("csl-service: {}", e)),
     };
-    let suggestions = engine.autocomplete(&prefix, 8);
-    RouteResponse::json(200, json!(suggestions))
+    let suggestions = resp.get("suggestions").cloned().unwrap_or(json!([]));
+    RouteResponse::json(200, suggestions)
 }
 
 /// Tiny percent-decoder for query strings. Handles `%XX` and `+`. Does

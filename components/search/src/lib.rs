@@ -20,3 +20,7 @@ pub mod tokenize;
 
 pub use engine::{SearchEngine, SearchParams};
 pub use model::{CslEntry, EntityType, Hit, Tlp};
+
+// Re-export `engine` so downstream crates (e.g. csl-service) can name
+// `engine::SearchResult` directly without depending on the inner module
+// path.

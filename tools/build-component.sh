@@ -21,5 +21,9 @@ cd "$(dirname "$0")/.."
   && rm -f wkg.lock \
   && wkg wit fetch -t wit ) >/dev/null
 
-# Stage 2 — build the wasm.
-cargo auditable build --target wasm32-wasip2 --release -p ocelaudit-api-gateway
+# Stage 2 — build both the api-gateway component AND the csl-service.
+# The service is launched alongside the component by wash dev (see
+# .wash/config.yaml's `dev.service_file`).
+cargo auditable build --target wasm32-wasip2 --release \
+  -p ocelaudit-api-gateway \
+  -p ocelaudit-csl-service

@@ -44,8 +44,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo ">> booting wash dev for tests/api ..."
-( cd components/api-gateway && wash dev >"$(pwd)/../../$LOG_FILE" 2>&1 ) &
+echo ">> booting wash dev for tests/api (from repo root → loads root .wash/config.yaml with dev.service_file) ..."
+( wash dev > "$LOG_FILE" 2>&1 ) &
 echo $! > "$PID_FILE"
 
 # Wait for the dev server to come up.

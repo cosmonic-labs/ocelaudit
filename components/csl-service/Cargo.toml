@@ -1,0 +1,20 @@
+[package]
+name = "ocelaudit-csl-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "OcelAudit CSL service — long-running TCP server holding the parsed corpus + prebuilt search index in RAM (M14)."
+
+[[bin]]
+name = "ocelaudit-csl-service"
+path = "src/main.rs"
+
+[dependencies]
+wstd.workspace = true
+anyhow.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ocelaudit-search = { path = "../search" }
+ocelaudit-storage-jsonfs = { path = "../storage-jsonfs" }

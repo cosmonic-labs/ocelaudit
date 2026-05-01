@@ -117,8 +117,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "==> booting wash dev …"
-( cd components/api-gateway && wash dev > "$LOG" 2>&1 ) &
+echo "==> booting wash dev (from repo root — picks up root .wash/config.yaml with dev.service_file) …"
+( wash dev > "$LOG" 2>&1 ) &
 echo $! > "$PID"
 
 deadline=$(( $(date +%s) + 60 ))

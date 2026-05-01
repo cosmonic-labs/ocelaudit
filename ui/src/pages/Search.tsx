@@ -54,6 +54,13 @@ export function SearchPage() {
   async function runSearch(value: string) {
     setBusy(true);
     setError(null);
+    // Submitting the search dismisses the autocomplete drop-down. The
+    // earlier behaviour left it floating over the first result row.
+    setAutocomplete([]);
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
     try {
       const r = await api.search(value, {
         sources: sources.size > 0 ? [...sources] : undefined,

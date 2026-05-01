@@ -17,6 +17,7 @@ pub(crate) const DEFAULT_REQUEST_SOURCE: &str = "api";
 pub(crate) const SOURCE_HEADER: &str = "x-ocelaudit-source";
 
 mod auth;
+mod csl_client;
 mod csl_fetch;
 mod routes;
 mod state;

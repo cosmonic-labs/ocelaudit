@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "components/api-gateway",
     "components/csl-ingest",
+    "components/csl-service",
     "components/search",
     "components/storage-jsonfs",
     "components/storage-memory",
@@ -17,6 +18,8 @@ publish = false
 
 [workspace.dependencies]
 wit-bindgen = "0.54"
+wstd = "0.6"
+anyhow = "1"
 
 [profile.release]
 opt-level = "s"
