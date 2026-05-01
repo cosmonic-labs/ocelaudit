@@ -104,30 +104,43 @@ Trust-boundary diagram lands in M6 when the SPA appears.
 
 ## Architectural pattern: hot-loading a component vs. running a service
 
-The single biggest learning of this demo isn't about screening — it's
-about wasmCloud's two workload models. Same machine, same 25,600-record
-live `data.trade.gov` corpus, same `Sberbank` search query:
+In the git history of the demo is the evolution of testing out different patterns
+for serving large in memory data structures - in this case the CSL: 
+I explored wasmCloud's two workload models - reactors and services
+. Same machine, same 25,600-record live `data.trade.gov` corpus, same `Sberbank`
+search query:
 
 ```
-M11  in-process engine, RefCell cache              ~5,036 ms / call
-M12  build_hit_snapshot routes through cached entries  ~1,180 ms / call
-M13  postcard disk cache (11 MB), hot-load per req       247 ms / call
-M14  TCP service holds engine in RAM                       5 ms / call
+M11  in-process engine, RefCell cache              ~5,036 ms / call (read in and map from disk with each query)
+M12  build_hit_snapshot routes through cached entries  ~1,180 ms / call (reactor)
+M13  postcard disk cache (11 MB), hot-load per req       247 ms / call (better reactor)
+M14  TCP service holds engine in RAM                       5 ms / call (516 KB tcp service)
 ```
 
 That's **1000×** between the first and last row, with no algorithmic
 change. The query is identical at every step — what changed is *where
 the prebuilt search index lives*.
 
-### Why "hot loading the component" doesn't work the way you'd want
+### Why you need wasm services..
 
-A wasmCloud `wasi:http/incoming-handler` component is *hot for the
+WebAssembly is fast - it much touted cold start time is great for 
+functions, but what about software that has side effects or needs
+greater initialization periods?
+
+Establishing TCP connections?
+Loading a flatfile into disk?
+
+A wasmCloud `wasi:http/incoming-handler`  reactor component is *hot for the
 handler*, not for state. The runtime instantiates it on demand for
 each incoming request, runs `handle()` to completion, and tears it
 down. Anything you stash in `OnceCell` / `RefCell` / `thread_local!`
 inside the component **is freed when the request finishes**.
 
-That's what kept biting M11–M13:
+A wasmCloud Service, [docs](https://wasmcloud.com/docs/overview/workloads/services/) and [example](https://github.com/wasmCloud/wasmCloud/tree/main/templates/service-tcp), give
+developers the flexibility to implement long running WebAssembly Components.
+
+Here you can see how we evolved this feature to deliver something - tiny,
+fast loading, performant, low maintenance, and secure with services:
 
 - **M11** did the obvious thing: build the search engine on first use
   and cache it in `RefCell<Option<SearchEngine>>` inside the component.
@@ -146,6 +159,7 @@ That's what kept biting M11–M13:
 
 The whole time, the cost wasn't the *search* (consistently 1 ms) — it
 was the cost of *re-establishing the index in memory* on every call.
+This same lesson often holds true on networking, etc.
 
 ### Why the service model collapses that to nothing
 
