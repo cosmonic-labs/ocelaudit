@@ -22,7 +22,7 @@
 # via localResources.allowedHosts.
 #
 # Apply with:
-#   kubectl apply -f deploy/control/ocelaudit.yaml
+#   kubectl apply -f deploy/control/httptrigger.yaml
 #
 # Reach the deployed app via the runtime gateway (matches ingress.host):
 #   curl -H 'Host: ocelaudit.localhost.cosmonic.sh' http://<gateway-host>/

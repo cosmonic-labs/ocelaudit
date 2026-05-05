@@ -437,18 +437,46 @@ CI runs `make build`, `make test-rust`, `make test-api`, `make test-ui`, `make a
 
 Local development uses `wash dev` against the workspace root, which spins up `csl-service` alongside `api-gateway` per `.wash/config.yaml`.
 
-For Cosmonic Control deployment, `deploy/control/ocelaudit.yaml` declares the same shape as a single `HTTPTrigger` (`control.cosmonic.io/v1alpha1`):
+For Cosmonic Control deployment, `deploy/control/httptrigger.yaml` declares the same shape as a single `HTTPTrigger` (`control.cosmonic.io/v1alpha1`):
 
 - `template.spec.components[0]` — the `api-gateway` component, fresh per request, exporting `wasi:http/incoming-handler`
 - `template.spec.service` — the `csl-service` long-lived TCP server, colocated on the same host so the loopback connection at `127.0.0.1:7878` works
 - `template.spec.volumes` + matching `volumeMounts` — an ephemeral volume mounted at `/data` in both pieces, so the storage-jsonfs backend can read/write `csl.json`, `users.json`, `audit.jsonl`, `workflow.jsonl`
 
-Apply with:
+The full happy path against a fresh kind cluster:
 
-```sh
-kubectl apply -f deploy/control/ocelaudit.yaml
-curl -H 'Host: ocelaudit.localhost.cosmonic.sh' http://<gateway-host>/
+```bash
+# 1. Kind cluster with port 80/443 forwarded to Traefik's NodePorts
+cat > kind-config.yaml <<'EOF'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 30443
+        hostPort: 443
+        protocol: TCP
+EOF
+kind create cluster --config ./kind-config.yaml
+
+# 2. Cosmonic Control + hostgroup
+helm upgrade --install cosmonic-control oci://ghcr.io/cosmonic/cosmonic-control \
+  --version 0.4.1 \
+  --namespace cosmonic-system --create-namespace \
+  --set 'ingress.hosts[0].host=ocelaudit.localhost.cosmonic.sh'
+
+helm upgrade --install hostgroup oci://ghcr.io/cosmonic/cosmonic-control-hostgroup \
+  --version 0.4.1 --namespace cosmonic-system
+
+# 3. Apply the manifest
+kubectl apply -f https://raw.githubusercontent.com/cosmonic-labs/ocelaudit/main/deploy/control/httptrigger.yaml
 ```
+
+`*.localhost.cosmonic.sh` resolves to `127.0.0.1`, so once the workload is
+ready, browse to <http://ocelaudit.localhost.cosmonic.sh>.
 
 The `csl-service` image (`ghcr.io/cosmonic-labs/ocelaudit-csl-service`) needs to land in the release workflow's publish matrix alongside `api-gateway` so tagged releases pick up both pieces; today it's pushed manually. Tracked as a follow-up in the PR that introduced this manifest.
 
