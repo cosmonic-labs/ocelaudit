@@ -48,11 +48,16 @@ echo ">> booting wash dev for tests/api (from repo root → loads root .wash/con
 ( wash dev > "$LOG_FILE" 2>&1 ) &
 echo $! > "$PID_FILE"
 
-# Wait for the dev server to come up.
+# Wait for the dev server to come up. Probe /healthz, not /, because the
+# gateway has an explicit "ocelaudit booting" placeholder that returns
+# 200 on / before AppState::startup() has finished — see the early-return
+# in components/api-gateway/src/routes.rs::dispatch. /healthz is gated on
+# AppState being Ok, so it only flips to 200 once the whole stack is up;
+# every other path returns 503 until that point.
 deadline=$(( $(date +%s) + 60 ))
 ready=0
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  if curl -fsS -o /dev/null -m 1 "$BASE_URL/" 2>/dev/null; then ready=1; break; fi
+  if curl -fsS -o /dev/null -m 1 "$BASE_URL/healthz" 2>/dev/null; then ready=1; break; fi
   sleep 0.5
 done
 if [ "$ready" -ne 1 ]; then
