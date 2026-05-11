@@ -48,16 +48,30 @@ echo ">> booting wash dev for tests/api (from repo root → loads root .wash/con
 ( wash dev > "$LOG_FILE" 2>&1 ) &
 echo $! > "$PID_FILE"
 
-# Wait for the dev server to come up.
+# Wait for the dev server to come up. Probe /healthz, not /, because the
+# gateway has an explicit "ocelaudit booting" placeholder that returns
+# 200 on / before AppState::startup() has finished — see the early-return
+# in components/api-gateway/src/routes.rs::dispatch. /healthz is gated on
+# AppState being Ok, so it only flips to 200 once the whole stack is up;
+# every other path returns 503 until that point.
 deadline=$(( $(date +%s) + 60 ))
 ready=0
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  if curl -fsS -o /dev/null -m 1 "$BASE_URL/" 2>/dev/null; then ready=1; break; fi
+  if curl -fsS -o /dev/null -m 1 "$BASE_URL/healthz" 2>/dev/null; then ready=1; break; fi
   sleep 0.5
 done
 if [ "$ready" -ne 1 ]; then
-  echo "!! wash dev did not become ready within 60s; tail of log:"
-  tail -n 50 "$LOG_FILE" || true
+  echo "!! wash dev did not become ready within 60s."
+  # The 503 body from /healthz carries the AppState::startup() error
+  # message (see components/api-gateway/src/routes.rs::dispatch). Capture
+  # one final response so the failure mode shows up in the CI log.
+  echo "-- final /healthz status + body --"
+  curl -sS -o /tmp/healthz-body -w '  status=%{http_code}\n' -m 5 "$BASE_URL/healthz" || true
+  echo "  body:"
+  sed -e 's/^/    /' /tmp/healthz-body || true
+  echo
+  echo "-- wash dev log --"
+  cat "$LOG_FILE" || true
   exit 1
 fi
 
