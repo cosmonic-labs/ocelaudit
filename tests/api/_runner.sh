@@ -61,8 +61,17 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
   sleep 0.5
 done
 if [ "$ready" -ne 1 ]; then
-  echo "!! wash dev did not become ready within 60s; tail of log:"
-  tail -n 50 "$LOG_FILE" || true
+  echo "!! wash dev did not become ready within 60s."
+  # The 503 body from /healthz carries the AppState::startup() error
+  # message (see components/api-gateway/src/routes.rs::dispatch). Capture
+  # one final response so the failure mode shows up in the CI log.
+  echo "-- final /healthz status + body --"
+  curl -sS -o /tmp/healthz-body -w '  status=%{http_code}\n' -m 5 "$BASE_URL/healthz" || true
+  echo "  body:"
+  sed -e 's/^/    /' /tmp/healthz-body || true
+  echo
+  echo "-- wash dev log --"
+  cat "$LOG_FILE" || true
   exit 1
 fi
 
