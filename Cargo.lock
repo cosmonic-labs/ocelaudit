@@ -168,6 +168,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastrand"
+version = "2.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
+
+[[package]]
 name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -197,13 +203,26 @@ version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49a9d51ce47660b1e808d3c990b4709f2f415d928835a17dfd16991515c46bce"
 dependencies = [
- "fastrand",
+ "fastrand 1.9.0",
  "futures-core",
  "futures-io",
  "memchr",
  "parking",
  "pin-project-lite",
  "waker-fn",
+]
+
+[[package]]
+name = "futures-lite"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f78e10609fe0e0b3f4157ffab1876319b5b0db102a2c60dc4626306dc46b44ad"
+dependencies = [
+ "fastrand 2.4.1",
+ "futures-core",
+ "futures-io",
+ "parking",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -433,7 +452,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "ocelaudit-api-gateway"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "base64",
  "getrandom 0.2.17",
@@ -452,7 +471,7 @@ dependencies = [
 
 [[package]]
 name = "ocelaudit-csl-ingest"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "ocelaudit-search",
  "serde",
@@ -461,9 +480,11 @@ dependencies = [
 
 [[package]]
 name = "ocelaudit-csl-service"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "anyhow",
+ "futures-lite 2.6.1",
+ "ocelaudit-csl-ingest",
  "ocelaudit-search",
  "ocelaudit-storage-jsonfs",
  "serde",
@@ -473,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "ocelaudit-search"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "postcard",
  "serde",
@@ -484,7 +505,7 @@ dependencies = [
 
 [[package]]
 name = "ocelaudit-storage-jsonfs"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "argon2",
  "ocelaudit-search",
@@ -495,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "ocelaudit-storage-memory"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "argon2",
  "ocelaudit-search",
@@ -1131,7 +1152,7 @@ dependencies = [
  "anyhow",
  "async-task",
  "bytes",
- "futures-lite",
+ "futures-lite 1.13.0",
  "http",
  "http-body",
  "http-body-util",
