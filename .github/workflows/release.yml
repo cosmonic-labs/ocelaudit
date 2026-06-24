@@ -104,13 +104,49 @@ jobs:
       - name: Build csl-service (cargo)
         run: cargo auditable build --target wasm32-wasip2 --release -p ocelaudit-csl-service
 
-      - name: Publish to GHCR with SLSA attestation
-        uses: wasmcloud/actions/wash-oci-publish@main
+      # NOTE: we can't reuse wasmcloud/actions/wash-oci-publish here. That action
+      # hardcodes the image name to ${GITHUB_REPOSITORY} (= cosmonic-labs/ocelaudit),
+      # which is the api-gateway's image. The csl-service is a SEPARATE image
+      # (ghcr.io/<owner>/ocelaudit-csl-service, per deploy/control/httptrigger.yaml);
+      # using the action would push both pieces to the same ref and clobber.
+      # So push the service to its own name explicitly + attest provenance.
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
-          component_path: target/wasm32-wasip2/release/ocelaudit-csl-service.wasm
           registry: ghcr.io
-          attestation: "true"
-          image_tags: "latest,${{ github.ref_name }}"
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Push csl-service to GHCR
+        id: push
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/ocelaudit-csl-service
+          WASM: target/wasm32-wasip2/release/ocelaudit-csl-service.wasm
+          REF_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Lowercase the owner (GHCR requires lowercase repository paths).
+          IMAGE="${IMAGE,,}"
+          digest=""
+          for tag in latest "$REF_TAG"; do
+            echo ">> wash oci push $IMAGE:$tag"
+            out=$(wash oci push --output json "$IMAGE:$tag" "$WASM")
+            digest=$(echo "$out" | jq -r .data.digest)
+            if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+              echo "!! failed to determine pushed digest for $tag: $out" >&2
+              exit 1
+            fi
+            echo "   pushed $IMAGE:$tag @ $digest"
+          done
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Attest csl-service provenance
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-name: ${{ steps.push.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
   release:
     name: Cut GitHub Release

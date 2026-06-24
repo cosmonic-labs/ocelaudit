@@ -51,7 +51,7 @@ spec:
         - name: data
           ephemeral: {}
       service:
-        image: ghcr.io/cosmonic-labs/ocelaudit-csl-service:0.1.0
+        image: ghcr.io/cosmonic-labs/ocelaudit-csl-service:v1.1.0
         localResources:
           # The service self-bootstraps the corpus: it fetches the live CSL from
           # data.trade.gov on start and daily at 07:00 US Eastern, so egress
@@ -64,7 +64,7 @@ spec:
               mountPath: /data
       components:
         - name: api-gateway
-          image: ghcr.io/cosmonic-labs/ocelaudit:v0.14.0
+          image: ghcr.io/cosmonic-labs/ocelaudit:v1.1.0
           localResources:
             allowedHosts:
               - "https://data.trade.gov"
