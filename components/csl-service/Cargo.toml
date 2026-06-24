@@ -18,3 +18,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ocelaudit-search = { path = "../search" }
 ocelaudit-storage-jsonfs = { path = "../storage-jsonfs" }
+# parse_external_json (CSL parsing) for the first-boot seed + live update.
+ocelaudit-csl-ingest = { path = "../csl-ingest" }
+# Run the accept loop and the daily-update scheduler concurrently on wstd's
+# single-threaded executor.
+futures-lite = "2"

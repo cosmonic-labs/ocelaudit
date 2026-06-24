@@ -45,6 +45,8 @@ use wstd::io::{AsyncRead, AsyncWrite};
 use wstd::iter::AsyncIterator;
 use wstd::net::TcpListener;
 
+mod bootstrap;
+
 const LISTEN_ADDR: &str = "0.0.0.0:7878"; // wash rewrites 0.0.0.0 → 127.0.0.1
 const STORAGE_ROOT: &str = "/data";
 const INDEX_CACHE_PATH: &str = "/data/search-index.bin";
@@ -53,20 +55,34 @@ const INDEX_CACHE_PATH: &str = "/data/search-index.bin";
 async fn main() -> Result<()> {
     let storage = JsonFsStorage::open(STORAGE_ROOT)?;
 
-    // Initial engine: try the postcard cache first (fast warm-boot),
-    // fall back to building from csl.json if the cache is missing or
-    // stale. Empty engine if both are absent.
-    let engine = build_engine(&storage);
+    // First boot: stage the default environment (embedded SPA bundle minus
+    // videos + a seed corpus) so the app is usable immediately, even offline.
+    bootstrap::stage_environment(&storage);
+
+    // Initial engine: warm postcard cache → build from csl.json → empty.
+    let engine = RefCell::new(build_engine(&storage));
+    let listener = TcpListener::bind(LISTEN_ADDR).await?;
     eprintln!(
         "csl-service: ready · listening on {} · n={}",
         LISTEN_ADDR,
-        engine.len()
+        engine.borrow().len()
     );
-    let engine = RefCell::new(engine);
 
-    let listener = TcpListener::bind(LISTEN_ADDR).await?;
+    // Serve requests AND run the CSL updater concurrently on wstd's single-
+    // threaded executor — the long-running service owns "cron": it refreshes the
+    // corpus on start and daily at 07:00 US Eastern (bootstrap::scheduler).
+    futures_lite::future::zip(
+        serve(&listener, &engine, &storage),
+        bootstrap::scheduler(&engine, &storage),
+    )
+    .await;
+
+    Ok(())
+}
+
+/// Accept loop: one persistent connection at a time, line-protocol requests.
+async fn serve(listener: &TcpListener, engine: &RefCell<SearchEngine>, storage: &JsonFsStorage) {
     let mut incoming = listener.incoming();
-
     while let Some(stream) = incoming.next().await {
         let mut stream = match stream {
             Ok(s) => s,
@@ -88,7 +104,7 @@ async fn main() -> Result<()> {
             }
             for &byte in &buf[..n] {
                 if byte == b'\n' {
-                    let response = handle_line(&engine, &storage, &line_buf);
+                    let response = handle_line(engine, storage, &line_buf);
                     line_buf.clear();
                     if stream.write_all(&response).await.is_err() {
                         break;
@@ -105,8 +121,6 @@ async fn main() -> Result<()> {
             }
         }
     }
-
-    Ok(())
 }
 
 fn build_engine(storage: &JsonFsStorage) -> SearchEngine {
