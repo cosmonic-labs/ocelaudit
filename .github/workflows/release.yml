@@ -63,9 +63,52 @@ jobs:
           attestation: "true"
           image_tags: "latest,${{ github.ref_name }}"
 
+  publish-csl-service:
+    name: Publish csl-service to GHCR
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup wash
+        uses: wasmCloud/setup-wash-action@main
+        with:
+          wash-version: v2.0.5
+
+      - name: Setup cargo-auditable wrapper
+        uses: wasmcloud/actions/setup-wash-cargo-auditable@main
+
+      - run: rustup target add wasm32-wasip2
+
+      # csl-service embeds the SPA bundle (ui/dist) at build time via its
+      # build.rs (minus videos) to stage /data on first boot. ui/dist is a
+      # gitignored build artifact, so build it BEFORE the cargo build — otherwise
+      # the embedded SPA is empty and the app never leaves "booting".
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build the SPA (embedded by csl-service)
+        run: |
+          corepack enable
+          pnpm --dir ui install --frozen-lockfile
+          pnpm --dir ui build
+
+      # csl-service is a plain wstd wasip2 binary (no wit/ → not a `wash build`
+      # component), so build it with cargo and hand the artifact to the publisher.
+      - name: Build csl-service (cargo)
+        run: cargo auditable build --target wasm32-wasip2 --release -p ocelaudit-csl-service
+
+      - name: Publish to GHCR with SLSA attestation
+        uses: wasmcloud/actions/wash-oci-publish@main
+        with:
+          component_path: target/wasm32-wasip2/release/ocelaudit-csl-service.wasm
+          registry: ghcr.io
+          attestation: "true"
+          image_tags: "latest,${{ github.ref_name }}"
+
   release:
     name: Cut GitHub Release
-    needs: publish
+    needs: [publish, publish-csl-service]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
