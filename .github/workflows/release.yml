@@ -130,10 +130,19 @@ jobs:
           digest=""
           for tag in latest "$REF_TAG"; do
             echo ">> wash oci push $IMAGE:$tag"
-            out=$(wash oci push --output json "$IMAGE:$tag" "$WASM")
+            # Capture stdout (JSON) + stderr separately so a non-zero exit still
+            # surfaces the real wash error instead of being swallowed by set -e.
+            if ! out=$(wash oci push --output json "$IMAGE:$tag" "$WASM" 2>/tmp/wash.err); then
+              echo "!! wash oci push failed for $tag" >&2
+              echo "---- stderr ----" >&2; cat /tmp/wash.err >&2
+              echo "---- stdout ----" >&2; echo "$out" >&2
+              exit 1
+            fi
             digest=$(echo "$out" | jq -r .data.digest)
             if [ -z "$digest" ] || [ "$digest" = "null" ]; then
-              echo "!! failed to determine pushed digest for $tag: $out" >&2
+              echo "!! failed to determine pushed digest for $tag" >&2
+              echo "stderr:"; cat /tmp/wash.err >&2
+              echo "stdout: $out" >&2
               exit 1
             fi
             echo "   pushed $IMAGE:$tag @ $digest"
