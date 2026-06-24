@@ -184,7 +184,11 @@ jobs:
             echo "## Verify"
             echo
             echo '```sh'
-            echo 'gh attestation verify oci://ghcr.io/${{ github.repository_owner }}/ocelaudit-api-gateway:${{ github.ref_name }} \\'
+            echo '# api-gateway component'
+            echo 'gh attestation verify oci://ghcr.io/${{ github.repository_owner }}/ocelaudit:${{ github.ref_name }} \\'
+            echo '  --owner ${{ github.repository_owner }}'
+            echo '# csl-service'
+            echo 'gh attestation verify oci://ghcr.io/${{ github.repository_owner }}/ocelaudit-csl-service:${{ github.ref_name }} \\'
             echo '  --owner ${{ github.repository_owner }}'
             echo '```'
             echo
