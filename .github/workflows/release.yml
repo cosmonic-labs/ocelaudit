@@ -84,12 +84,18 @@ jobs:
       # build.rs (minus videos) to stage /data on first boot. ui/dist is a
       # gitignored build artifact, so build it BEFORE the cargo build — otherwise
       # the embedded SPA is empty and the app never leaves "booting".
+      # Mirror ci.yml's SPA setup: pin pnpm via action-setup (not corepack,
+      # whose latest pnpm needs Node >=22.13 / node:sqlite) on Node 22.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
       - name: Build the SPA (embedded by csl-service)
         run: |
-          corepack enable
           pnpm --dir ui install --frozen-lockfile
           pnpm --dir ui build
 
