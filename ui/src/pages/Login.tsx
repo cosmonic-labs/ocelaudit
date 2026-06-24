@@ -20,6 +20,11 @@ export function Login({ brand, onLogin }: Props) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The hero poster + video aren't always present (the embedded desktop build
+  // ships the SPA without the heavy media). Track load failures so we fall back
+  // to a simple gradient background instead of a broken/black box.
+  const [posterOk, setPosterOk] = useState(true);
+  const [videoOk, setVideoOk] = useState(true);
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -41,13 +46,24 @@ export function Login({ brand, onLogin }: Props) {
 
   return (
     <main class="relative grid h-full place-items-center overflow-hidden bg-ocelot-ink">
-      {/* Poster paints first; the video stacks on top and replaces it once buffered. */}
+      {/* Simple gradient background — always present. The poster + video are
+          progressive enhancement layered on top; when they're absent (e.g. the
+          embedded desktop build ships no media) this is what shows. */}
       <div
         aria-hidden="true"
-        class="pointer-events-none absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: `url(${HERO_POSTER})` }}
+        class="pointer-events-none absolute inset-0"
+        style={{ background: "linear-gradient(135deg,#0b1220 0%,#172a4d 55%,#c2570d 138%)" }}
       />
-      {video && (
+      {/* Poster paints first when available; hidden if it fails to load. */}
+      {posterOk && (
+        <img
+          aria-hidden="true"
+          src={HERO_POSTER}
+          onError={() => setPosterOk(false)}
+          class="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        />
+      )}
+      {video && videoOk && (
         <video
           aria-hidden="true"
           autoplay
@@ -55,7 +71,8 @@ export function Login({ brand, onLogin }: Props) {
           loop
           playsInline
           preload="auto"
-          poster={HERO_POSTER}
+          poster={posterOk ? HERO_POSTER : undefined}
+          onError={() => setVideoOk(false)}
           class="pointer-events-none absolute inset-0 h-full w-full object-cover"
         >
           <source src={video} type="video/mp4" />
